@@ -171,6 +171,9 @@ footer { color: var(--muted); font-size: 0.8rem; text-align: center; }
 }
 #viewer-canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 #viewer-canvas:active { cursor: grabbing; }
+/* The `hidden` attribute must beat this rule's `display: flex`, or the
+   placeholder stays visible on top of a loaded model. */
+.viewer-empty[hidden] { display: none; }
 .viewer-empty {
   position: absolute;
   inset: 0;
@@ -205,3 +208,75 @@ select#rotate {
 
 #orientation-panel .field-row label.checkbox,
 #preview3d-panel .field-row label.checkbox { min-width: unset; }
+
+/* --- input image editor --- */
+#editor-details {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+}
+#editor-details > summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+#editor-details[open] > summary { margin-bottom: 0.8rem; }
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+.tool-group { display: flex; gap: 0.25rem; }
+.tool-btn, #editor-undo, #editor-reset, #reset-view-btn, #download-preview-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.tool-btn:hover, #editor-undo:hover, #editor-reset:hover,
+#reset-view-btn:hover, #download-preview-btn:hover { border-color: var(--accent); }
+.tool-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#editor-undo:disabled, #download-preview-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.editor-toolbar .brush-field { min-width: unset; color: var(--muted); font-size: 0.85rem; }
+.editor-toolbar input[type="range"] { width: 140px; }
+
+.editor-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  /* A checkerboard makes erased-to-transparent regions obvious. */
+  background-image:
+    linear-gradient(45deg, #26262a 25%, transparent 25%),
+    linear-gradient(-45deg, #26262a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #26262a 75%),
+    linear-gradient(-45deg, transparent 75%, #26262a 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+#editor-canvas { display: block; cursor: crosshair; touch-action: none; }
+#editor-canvas.crop-cursor { cursor: crosshair; }
+#editor-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#mesh-stats.warn { color: #e0803a; }
+
+/* Keep viewer/editor toolbar labels on one line. */
+#preview3d-panel .field-row label.checkbox,
+.editor-toolbar label { white-space: nowrap; }

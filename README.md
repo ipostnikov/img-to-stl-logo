@@ -53,16 +53,26 @@ docker run --rm -p 8080:8080 logo-to-stl
 2. If it doesn't have transparency, use the "Background sensitivity" slider
    and watch the "Detected shape" preview until it matches your logo. Use
    "Invert selection" if the tool picked the background instead of the logo.
-3. Set orientation (mirror / rotate / lay flat) and, if you want a lighter
+3. Optionally open **"Edit the image"** to clean up the artwork before it is
+   traced — erase with a brush or a rectangle (handy for dropping the text out
+   of a logo and keeping only the mark), or crop. Erased areas are filled with
+   the auto-detected background colour, or made transparent when the image
+   already has an alpha channel, so they fall out of the silhouette. Undo and
+   Reset are one click away.
+4. Set orientation (mirror / rotate / lay flat) and, if you want a lighter
    file, drag the "Triangle budget" slider.
-4. Check the **3D preview** — drag to orbit, scroll to zoom. It renders the
+5. Check the **3D preview** — drag to orbit, scroll to zoom. It renders the
    exact bytes `/api/generate` would hand you, at the first size in the list.
-   Tick "Show mesh triangles" to overlay the wireframe and see how the
-   triangle budget is reshaping the mesh. The readout reports the triangle
-   count, the model's mm dimensions, and whether it is watertight.
-5. Add/edit size rows (label, width in mm, thickness in mm) — presets for
+   Tick "Show mesh triangles" to overlay the wireframe. The camera is held
+   across re-renders, so you can zoom into a detail, drag the triangle budget,
+   and watch that detail coarsen without losing your place; "Reset view"
+   re-frames the model. The readout reports the triangle count, the model's mm
+   dimensions, how many separate parts it has, and whether it is watertight
+   (highlighted when it is not — heavy decimation can break watertightness).
+   "Download this STL" saves exactly what you are looking at.
+6. Add/edit size rows (label, width in mm, thickness in mm) — presets for
    small/medium/large are provided as a starting point.
-6. Click "Generate STL". One size downloads as a single `.stl`; multiple
+7. Click "Generate STL". One size downloads as a single `.stl`; multiple
    sizes download as a `.zip` containing one `.stl` each.
 
 ## Notes
@@ -76,4 +86,9 @@ docker run --rm -p 8080:8080 logo-to-stl
 - SVG detection is alpha-based: a white shape painted on top of a black shape
   in an SVG is *opaque*, so it stays part of the silhouette rather than
   becoming a hole. Use a real cut-out (e.g. `fill-rule="evenodd"`) for holes.
+- Uploads are cached server-side by content hash (last 8), and the browser
+  sends just the hash on follow-up requests. Dragging a slider therefore costs
+  a few hundred bytes per preview rather than a full re-upload. On a cache miss
+  (restart, eviction, or the request landing on the other gunicorn worker) the
+  server replies `409` and the client transparently resends the image.
 - Everything runs inside the container; no image data leaves it.

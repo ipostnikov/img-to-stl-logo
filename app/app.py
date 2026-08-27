@@ -1,6 +1,8 @@
+import hashlib
 import io
 import json
 import zipfile
+from collections import OrderedDict
 
 from flask import Flask, abort, request, render_template, send_file
 
@@ -22,12 +24,45 @@ def index():
     return render_template("index.html")
 
 
-def _read_image_and_params():
-    if "image" not in request.files:
+# Recently uploaded images, keyed by content hash. Tuning a slider fires a
+# preview per change; without this every one of them would re-upload the full
+# image. Clients send image_id alone and fall back to the bytes on a miss, so
+# a cold cache (restart, or the other gunicorn worker) is merely slower.
+_IMAGE_CACHE: "OrderedDict[str, bytes]" = OrderedDict()
+_IMAGE_CACHE_MAX = 8
+
+
+def _cache_image(image_bytes: bytes) -> str:
+    image_id = hashlib.sha256(image_bytes).hexdigest()
+    _IMAGE_CACHE[image_id] = image_bytes
+    _IMAGE_CACHE.move_to_end(image_id)
+    while len(_IMAGE_CACHE) > _IMAGE_CACHE_MAX:
+        _IMAGE_CACHE.popitem(last=False)
+    return image_id
+
+
+def _resolve_image() -> bytes:
+    """Take the uploaded bytes, or reuse a cached upload by its id."""
+    if "image" in request.files:
+        image_bytes = request.files["image"].read()
+        if not image_bytes:
+            abort(400, "Empty image upload")
+        _cache_image(image_bytes)
+        return image_bytes
+
+    image_id = request.form.get("image_id", "")
+    if not image_id:
         abort(400, "No image uploaded")
-    image_bytes = request.files["image"].read()
-    if not image_bytes:
-        abort(400, "Empty image upload")
+    cached = _IMAGE_CACHE.get(image_id)
+    if cached is None:
+        # 409 is the client's cue to retry with the full bytes attached.
+        abort(409, "image-not-cached")
+    _IMAGE_CACHE.move_to_end(image_id)
+    return cached
+
+
+def _read_image_and_params():
+    image_bytes = _resolve_image()
     try:
         threshold = float(request.form.get("threshold", 30))
         min_area_pct = float(request.form.get("min_area_pct", 0.02))
@@ -107,10 +142,14 @@ def mesh_preview():
     resp = send_file(io.BytesIO(stl_bytes), mimetype="model/stl")
     resp.headers["X-Triangle-Count"] = str(len(mesh.faces))
     resp.headers["X-Watertight"] = "1" if mesh.is_watertight else "0"
+    # One extruded solid per traced polygon. Counting connected components on
+    # the mesh itself (mesh.body_count) would drag in scipy for no extra
+    # accuracy, since that is exactly how the bodies were built.
+    resp.headers["X-Body-Count"] = str(len(polygons))
     size = mesh.extents
     resp.headers["X-Size-Mm"] = ",".join(f"{v:.2f}" for v in size)
     resp.headers["Access-Control-Expose-Headers"] = (
-        "X-Triangle-Count, X-Watertight, X-Size-Mm"
+        "X-Triangle-Count, X-Watertight, X-Size-Mm, X-Body-Count"
     )
     return resp
 

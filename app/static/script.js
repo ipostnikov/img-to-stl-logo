@@ -1,4 +1,5 @@
 import { createViewer } from "./viewer.js";
+import { createEditor } from "./editor.js";
 
 (() => {
   const imageInput = document.getElementById("image-input");
@@ -33,7 +34,18 @@ import { createViewer } from "./viewer.js";
   const viewerEmpty = document.getElementById("viewer-empty");
   const wireframeInput = document.getElementById("wireframe");
   const refreshPreviewBtn = document.getElementById("refresh-preview-btn");
+  const resetViewBtn = document.getElementById("reset-view-btn");
+  const downloadPreviewBtn = document.getElementById("download-preview-btn");
   const meshStats = document.getElementById("mesh-stats");
+
+  const editorDetails = document.getElementById("editor-details");
+  const editorCanvas = document.getElementById("editor-canvas");
+  const editorOverlay = document.getElementById("editor-overlay");
+  const editorUndo = document.getElementById("editor-undo");
+  const editorReset = document.getElementById("editor-reset");
+  const brushSizeInput = document.getElementById("brush-size");
+  const brushSizeValue = document.getElementById("brush-size-value");
+  const toolButtons = document.querySelectorAll(".tool-btn");
 
   const generateBtn = document.getElementById("generate-btn");
   const statusEl = document.getElementById("status");
@@ -45,8 +57,78 @@ import { createViewer } from "./viewer.js";
   // full-detail preview; the budget slider is a percentage of it.
   let fullTriangleCount = 0;
   let meshRequestId = 0;
+  let meshAbort = null;
+  // The camera is only re-framed for a genuinely new model; tweaking the
+  // triangle budget or orientation must leave the user's zoom exactly where
+  // they put it so they can compare meshes at the same magnification.
+  let needsViewReset = true;
+  let lastMeshBlob = null;
+  let lastMeshName = "preview.stl";
 
   const viewer = createViewer(viewerCanvas);
+  // Exposed for the browser test to inspect orbit state.
+  window.__viewer = viewer;
+  const editor = createEditor({
+    canvas: editorCanvas,
+    overlay: editorOverlay,
+    onChange: () => {
+      // Edits invalidate the triangle baseline and change the silhouette.
+      fullTriangleCount = 0;
+      updateTriangleLabel();
+      editorUndo.disabled = !editor.canUndo();
+      schedulePreview();
+    },
+  });
+
+  /** The bytes to upload: the edited image once the user has touched it,
+   *  otherwise the pristine original (which keeps SVGs vector-sharp, since
+   *  the server rasterizes them at a higher resolution than the editor). */
+  async function uploadFile() {
+    if (editor.isReady() && editor.isDirty()) return editor.toFile();
+    return currentFile;
+  }
+
+  // Content hash of the image the server most recently accepted. Sending just
+  // the id turns a slider drag into a few hundred bytes per request instead of
+  // a full re-upload of the image.
+  let cachedImageId = null;
+
+  async function hashFile(file) {
+    // crypto.subtle only exists in a secure context; over plain http on a LAN
+    // address it is undefined, so fall back to always uploading the bytes.
+    if (!window.crypto?.subtle) return null;
+    try {
+      const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    } catch {
+      return null;
+    }
+  }
+
+  /** POST `form`, attaching the image only when the server can already reuse it. */
+  async function postWithImage(url, form, options = {}) {
+    const file = await uploadFile();
+    const id = await hashFile(file);
+    if (id && id === cachedImageId) {
+      form.append("image_id", id);
+    } else {
+      form.append("image", file);
+    }
+
+    let res = await fetch(url, { method: "POST", body: form, ...options });
+    if (res.status === 409) {
+      // The server dropped that image (restart, eviction, or the request
+      // landed on the other worker): resend it in full, exactly once.
+      const retry = new FormData();
+      for (const [key, value] of form.entries()) {
+        if (key !== "image_id") retry.append(key, value);
+      }
+      retry.append("image", file);
+      res = await fetch(url, { method: "POST", body: retry, ...options });
+    }
+    if (res.ok && id) cachedImageId = id;
+    return res;
+  }
 
   // Thickness is deliberately a substantial fraction of width (~30-40%),
   // matching the reference STLs shipped with this project - this is meant
@@ -150,7 +232,32 @@ import { createViewer } from "./viewer.js";
   });
   wireframeInput.addEventListener("change", () => viewer.setWireframe(wireframeInput.checked));
   refreshPreviewBtn.addEventListener("click", runMeshPreview);
+  resetViewBtn.addEventListener("click", () => viewer.resetView());
+  downloadPreviewBtn.addEventListener("click", () => {
+    if (lastMeshBlob) downloadBlob(lastMeshBlob, lastMeshName);
+  });
   updateTriangleLabel();
+
+  // --- image editor -------------------------------------------------------
+  toolButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      toolButtons.forEach((b) => b.classList.toggle("is-active", b === btn));
+      editor.setTool(btn.dataset.tool);
+      editorCanvas.classList.toggle("crop-cursor", btn.dataset.tool !== "erase-brush");
+    });
+  });
+  brushSizeInput.addEventListener("input", () => {
+    brushSizeValue.textContent = brushSizeInput.value;
+    editor.setBrushSize(Number(brushSizeInput.value));
+  });
+  editor.setBrushSize(Number(brushSizeInput.value));
+  editorUndo.addEventListener("click", () => editor.undo());
+  editorReset.addEventListener("click", () => editor.reset());
+  // The canvas is sized from its container, which has no width until the
+  // <details> is actually open.
+  editorDetails.addEventListener("toggle", () => {
+    if (editorDetails.open) window.dispatchEvent(new Event("resize"));
+  });
 
   function setDropzoneFile(file) {
     const isSvg = /\.svg$/i.test(file?.name || "") || file?.type === "image/svg+xml";
@@ -162,9 +269,18 @@ import { createViewer } from "./viewer.js";
     // Triangle counts are per-artwork; forget the previous model's baseline.
     fullTriangleCount = 0;
     updateTriangleLabel();
+    // A different logo deserves a freshly framed camera.
+    needsViewReset = true;
     dropzoneText.textContent = file.name;
     originalPreview.src = URL.createObjectURL(file);
     generateBtn.disabled = false;
+    editor
+      .load(file)
+      .then(() => {
+        editorUndo.disabled = !editor.canUndo();
+        schedulePreview();
+      })
+      .catch((err) => setStatus(`Could not open the image editor: ${err.message}`, true));
     schedulePreview();
   }
 
@@ -240,14 +356,20 @@ import { createViewer } from "./viewer.js";
       return;
     }
     const form = currentParams();
-    form.append("image", currentFile);
     form.append("width_mm", String(size.width_mm));
     form.append("thickness_mm", String(size.thickness_mm));
+    // What this particular request asked for; a 0 means the response is the
+    // full-detail mesh and can therefore re-establish the budget baseline.
+    const requestedFaces = targetFaces();
 
     const requestId = ++meshRequestId;
+    // Drop any still-running preview: only the newest settings matter.
+    meshAbort?.abort();
+    meshAbort = new AbortController();
+    const signal = meshAbort.signal;
     setStatus("Building 3D preview…");
     try {
-      const res = await fetch("/api/mesh", { method: "POST", body: form });
+      const res = await postWithImage("/api/mesh", form, { signal });
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || `HTTP ${res.status}`);
@@ -256,20 +378,39 @@ import { createViewer } from "./viewer.js";
       // A slower earlier request must not overwrite a newer preview.
       if (requestId !== meshRequestId) return;
 
-      const triangles = viewer.load(buffer, { showWireframe: wireframeInput.checked });
+      const triangles = viewer.load(buffer, {
+        showWireframe: wireframeInput.checked,
+        resetView: needsViewReset,
+      });
+      needsViewReset = false;
       viewerEmpty.hidden = true;
-      if (!Number(trianglesInput.value)) {
+      lastMeshBlob = new Blob([buffer], { type: "model/stl" });
+      lastMeshName = `${size.label || "logo"}_${size.width_mm}mm_x_${size.thickness_mm}mm.stl`;
+      downloadPreviewBtn.disabled = false;
+      if (!requestedFaces) {
+        const relearned = !fullTriangleCount;
         fullTriangleCount = triangles;
         updateTriangleLabel();
+        // The baseline is cleared whenever the artwork changes. If the budget
+        // slider is engaged, it had nothing to compute against a moment ago -
+        // now that it does, re-render so the budget is actually applied.
+        if (relearned && targetFaces()) {
+          scheduleMeshPreview();
+          return;
+        }
       }
       const dims = res.headers.get("X-Size-Mm");
       const watertight = res.headers.get("X-Watertight") === "1";
+      const bodies = Number(res.headers.get("X-Body-Count") || 1);
       meshStats.textContent =
         `${triangles.toLocaleString()} triangles` +
-        (dims ? ` · ${dims.split(",").map((v) => `${Number(v).toFixed(1)}`).join(" × ")} mm` : "") +
-        (watertight ? " · watertight" : " · not watertight");
+        (dims ? ` · ${dims.split(",").map((v) => Number(v).toFixed(1)).join(" × ")} mm` : "") +
+        (bodies > 1 ? ` · ${bodies} separate parts` : "") +
+        (watertight ? " · watertight" : " · NOT watertight");
+      meshStats.classList.toggle("warn", !watertight);
       setStatus("");
     } catch (err) {
+      if (err.name === "AbortError") return;
       if (requestId === meshRequestId) setStatus(`3D preview failed: ${err.message}`, true);
     }
   }
@@ -277,10 +418,9 @@ import { createViewer } from "./viewer.js";
   async function runPreview() {
     if (!currentFile) return;
     const form = currentParams();
-    form.append("image", currentFile);
     setStatus("Updating preview…");
     try {
-      const res = await fetch("/api/preview", { method: "POST", body: form });
+      const res = await postWithImage("/api/preview", form);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || `HTTP ${res.status}`);
@@ -291,6 +431,17 @@ import { createViewer } from "./viewer.js";
     } catch (err) {
       setStatus(`Preview failed: ${err.message}`, true);
     }
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   function setStatus(msg, isError = false) {
@@ -307,13 +458,12 @@ import { createViewer } from "./viewer.js";
     }
 
     const form = currentParams();
-    form.append("image", currentFile);
     form.append("sizes", JSON.stringify(sizes));
 
     generateBtn.disabled = true;
     setStatus("Generating STL…");
     try {
-      const res = await fetch("/api/generate", { method: "POST", body: form });
+      const res = await postWithImage("/api/generate", form);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || `HTTP ${res.status}`);
@@ -323,14 +473,7 @@ import { createViewer } from "./viewer.js";
       const match = disposition.match(/filename="?([^"]+)"?/);
       const filename = match ? match[1] : "logo.stl";
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, filename);
       setStatus("Done.");
     } catch (err) {
       setStatus(`Generation failed: ${err.message}`, true);

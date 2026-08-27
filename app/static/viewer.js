@@ -176,6 +176,17 @@ export function createViewer(canvas) {
       render();
       return triangles;
     },
+    /** Current orbit state — used by tests to prove the camera is held. */
+    getCamera() {
+      return { theta, phi, distance };
+    },
+    /** Frame the model again after the user has orbited/zoomed away. */
+    resetView() {
+      distance = radius * 2.6;
+      theta = Math.PI * 0.25;
+      phi = Math.PI * 0.32;
+      render();
+    },
     setWireframe(on) {
       if (wire) wire.visible = on;
       render();

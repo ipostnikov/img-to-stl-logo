@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Logo → STL</title>
+  <!-- Inline empty icon: avoids a pointless 404 for /favicon.ico. -->
+  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
@@ -30,6 +32,31 @@
           <img id="mask-preview" alt="Detected silhouette preview" />
         </figure>
       </div>
+
+      <details id="editor-details">
+        <summary>Edit the image (crop / erase parts, e.g. remove text)</summary>
+        <div class="editor-toolbar">
+          <div class="tool-group" role="group" aria-label="Editing tool">
+            <button type="button" class="tool-btn is-active" data-tool="erase-brush">Erase (brush)</button>
+            <button type="button" class="tool-btn" data-tool="erase-rect">Erase (rectangle)</button>
+            <button type="button" class="tool-btn" data-tool="crop">Crop</button>
+          </div>
+          <label class="brush-field" for="brush-size">Brush</label>
+          <input type="range" id="brush-size" min="4" max="200" step="2" value="40" />
+          <span class="value" id="brush-size-value">40</span>
+          <button type="button" id="editor-undo">Undo</button>
+          <button type="button" id="editor-reset">Reset</button>
+        </div>
+        <div class="editor-stage" id="editor-stage">
+          <canvas id="editor-canvas"></canvas>
+          <canvas id="editor-overlay"></canvas>
+        </div>
+        <p class="hint" id="editor-hint">
+          Drag on the image to erase. Erased areas are filled with the detected
+          background colour (or made transparent if the image already has an alpha
+          channel), so they drop out of the silhouette.
+        </p>
+      </details>
     </section>
 
     <section class="panel" id="mask-panel">
@@ -104,10 +131,16 @@
       </div>
       <div class="field-row">
         <label class="checkbox"><input type="checkbox" id="wireframe" /> Show mesh triangles</label>
-        <button type="button" id="refresh-preview-btn">Refresh preview</button>
+        <button type="button" id="reset-view-btn">Reset view</button>
+        <button type="button" id="refresh-preview-btn">Refresh</button>
+        <button type="button" id="download-preview-btn" disabled>Download this STL</button>
         <span class="value" id="mesh-stats"></span>
       </div>
-      <p class="hint">Drag to orbit, scroll to zoom. Previewed at the first size in the list below.</p>
+      <p class="hint">
+        Drag to orbit, scroll to zoom. Previewed at the first size in the list below.
+        Your camera stays put when you change the triangle budget or orientation,
+        so you can zoom into a detail and watch the mesh change under it.
+      </p>
     </section>
 
     <section class="panel" id="sizes-panel">
