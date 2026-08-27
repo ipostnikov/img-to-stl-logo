@@ -1,6 +1,10 @@
 import hashlib
 import io
 import json
+import os
+import pathlib
+import re
+import tempfile
 import zipfile
 from collections import OrderedDict
 
@@ -26,18 +30,59 @@ def index():
 
 # Recently uploaded images, keyed by content hash. Tuning a slider fires a
 # preview per change; without this every one of them would re-upload the full
-# image. Clients send image_id alone and fall back to the bytes on a miss, so
-# a cold cache (restart, or the other gunicorn worker) is merely slower.
+# image. Clients send image_id alone and fall back to the bytes on a miss.
+#
+# Two tiers, because gunicorn runs several workers and a request can land on
+# any of them: an in-process dict, backed by a spool directory the workers
+# share. An in-memory-only cache missed roughly every other request.
 _IMAGE_CACHE: "OrderedDict[str, bytes]" = OrderedDict()
 _IMAGE_CACHE_MAX = 8
+_SPOOL_DIR = pathlib.Path(tempfile.gettempdir()) / "logo_stl_uploads"
 
 
-def _cache_image(image_bytes: bytes) -> str:
-    image_id = hashlib.sha256(image_bytes).hexdigest()
+def _remember(image_id: str, image_bytes: bytes) -> None:
     _IMAGE_CACHE[image_id] = image_bytes
     _IMAGE_CACHE.move_to_end(image_id)
     while len(_IMAGE_CACHE) > _IMAGE_CACHE_MAX:
         _IMAGE_CACHE.popitem(last=False)
+
+
+def _spool_write(image_id: str, image_bytes: bytes) -> None:
+    """Publish an upload for the other workers, keeping the spool bounded."""
+    try:
+        _SPOOL_DIR.mkdir(parents=True, exist_ok=True)
+        target = _SPOOL_DIR / f"{image_id}.bin"
+        if not target.exists():
+            # Write-then-rename so a worker can never read a half-written file.
+            tmp = _SPOOL_DIR / f".{image_id}.{os.getpid()}.tmp"
+            tmp.write_bytes(image_bytes)
+            os.replace(tmp, target)
+        else:
+            target.touch()
+        entries = sorted(_SPOOL_DIR.glob("*.bin"), key=lambda p: p.stat().st_mtime)
+        for stale in entries[:-_IMAGE_CACHE_MAX]:
+            stale.unlink(missing_ok=True)
+    except OSError:
+        # A read-only or full /tmp costs us the cache, not the request.
+        pass
+
+
+def _spool_read(image_id: str) -> bytes | None:
+    try:
+        data = (_SPOOL_DIR / f"{image_id}.bin").read_bytes()
+    except OSError:
+        return None
+    # Verify rather than trust the filename: the id is attacker-supplied and
+    # this keeps a corrupted spool file from being served as someone's image.
+    if hashlib.sha256(data).hexdigest() != image_id:
+        return None
+    return data
+
+
+def _cache_image(image_bytes: bytes) -> str:
+    image_id = hashlib.sha256(image_bytes).hexdigest()
+    _remember(image_id, image_bytes)
+    _spool_write(image_id, image_bytes)
     return image_id
 
 
@@ -51,14 +96,21 @@ def _resolve_image() -> bytes:
         return image_bytes
 
     image_id = request.form.get("image_id", "")
-    if not image_id:
-        abort(400, "No image uploaded")
+    # Only ever a hex digest, so it can never escape the spool directory.
+    if not re.fullmatch(r"[0-9a-f]{64}", image_id):
+        abort(400 if not image_id else 409, "No usable image id")
+
     cached = _IMAGE_CACHE.get(image_id)
-    if cached is None:
+    if cached is not None:
+        _IMAGE_CACHE.move_to_end(image_id)
+        return cached
+
+    spooled = _spool_read(image_id)
+    if spooled is None:
         # 409 is the client's cue to retry with the full bytes attached.
         abort(409, "image-not-cached")
-    _IMAGE_CACHE.move_to_end(image_id)
-    return cached
+    _remember(image_id, spooled)
+    return spooled
 
 
 def _read_image_and_params():

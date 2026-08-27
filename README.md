@@ -75,6 +75,28 @@ docker run --rm -p 8080:8080 logo-to-stl
 7. Click "Generate STL". One size downloads as a single `.stl`; multiple
    sizes download as a `.zip` containing one `.stl` each.
 
+## Container size
+
+The image is ~366 MB. Most of that is irreducible: OpenCV (~134 MB, including
+the OpenBLAS and ffmpeg libraries its wheel bundles) and NumPy (~62 MB) on top
+of the ~129 MB `python:3.11-slim` base. What the Dockerfile does avoid:
+
+- **No `libgl1`.** It was 225 MB of apt packages, including a 124 MB LLVM by way
+  of Mesa. `opencv-python-headless` has no GL dependency and never needed it.
+  This alone was over a third of the image.
+- **Multi-stage build.** Dependencies are installed into a venv in a builder
+  stage and copied into a clean runtime, so the compiler and apt caches never
+  reach the final image.
+- **No bytecode** (`--no-compile`, `PYTHONDONTWRITEBYTECODE`) — ~40 MB of `.pyc`
+  duplicating source that a long-running service doesn't benefit from.
+- **Stripped shared objects**, and `pip`/`setuptools`/`cv2/data` removed, since
+  nothing installs packages at runtime and we don't do face detection.
+
+Together that took the image from 634 MB to 366 MB. Going meaningfully lower
+would mean dropping OpenCV, which supplies the nested contour tracing
+(`findContours` with `RETR_TREE`) that the whole silhouette pipeline is built
+on — not a trade worth making for a few hundred MB on disk.
+
 ## Notes
 
 - Disconnected parts of the logo (e.g. separate silhouettes side by side)
@@ -88,7 +110,10 @@ docker run --rm -p 8080:8080 logo-to-stl
   becoming a hole. Use a real cut-out (e.g. `fill-rule="evenodd"`) for holes.
 - Uploads are cached server-side by content hash (last 8), and the browser
   sends just the hash on follow-up requests. Dragging a slider therefore costs
-  a few hundred bytes per preview rather than a full re-upload. On a cache miss
-  (restart, eviction, or the request landing on the other gunicorn worker) the
-  server replies `409` and the client transparently resends the image.
+  a few hundred bytes per preview rather than a full re-upload. The cache has
+  two tiers — a per-process dict over a spool directory in the temp dir — because
+  gunicorn runs several workers and a request can land on any of them; an
+  in-memory-only cache missed roughly every other request. On a genuine miss
+  (restart or eviction) the server replies `409` and the client transparently
+  resends the image.
 - Everything runs inside the container; no image data leaves it.
