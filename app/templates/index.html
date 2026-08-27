@@ -9,15 +9,15 @@
 <body>
   <header>
     <h1>Logo &rarr; STL</h1>
-    <p class="subtitle">Turn a PNG/JPG logo into a correctly-oriented, extruded STL — in as many sizes as you like.</p>
+    <p class="subtitle">Turn a PNG/JPG/SVG logo into a correctly-oriented, extruded STL — in as many sizes as you like.</p>
   </header>
 
   <main>
     <section class="panel" id="upload-panel">
       <h2>1. Image</h2>
       <label class="dropzone" id="dropzone" for="image-input">
-        <span id="dropzone-text">Drop an image here, or click to choose a file</span>
-        <input type="file" id="image-input" accept="image/*" hidden />
+        <span id="dropzone-text">Drop a PNG / JPG / SVG here, or click to choose a file</span>
+        <input type="file" id="image-input" accept="image/*,.svg" hidden />
       </label>
 
       <div class="preview-row">
@@ -63,8 +63,55 @@
       </div>
     </section>
 
+    <section class="panel" id="orientation-panel">
+      <h2>3. Orientation &amp; mesh</h2>
+      <div class="field-row">
+        <label>Mirror</label>
+        <label class="checkbox"><input type="checkbox" id="mirror-h" /> Horizontally</label>
+        <label class="checkbox"><input type="checkbox" id="mirror-v" /> Vertically</label>
+      </div>
+      <div class="field-row">
+        <label for="rotate">Rotate in plane</label>
+        <select id="rotate">
+          <option value="0">0°</option>
+          <option value="90">90°</option>
+          <option value="180">180°</option>
+          <option value="270">270°</option>
+        </select>
+        <label class="checkbox"><input type="checkbox" id="lay-flat" /> Lay flat on the bed</label>
+      </div>
+      <p class="hint">
+        Mirroring is what you want when the logo will be pressed/embossed into another
+        surface. "Lay flat" turns the model so its thickness runs vertically off the print bed.
+      </p>
+      <div class="field-row">
+        <label for="triangles">Triangle budget</label>
+        <input type="range" id="triangles" min="0" max="100" step="1" value="0" />
+        <span class="value" id="triangles-value">auto</span>
+      </div>
+      <p class="hint">
+        Left-most = no reduction (full detail). Move right to decimate the mesh toward a
+        smaller triangle count — smaller files, coarser edges. Also try "Edge smoothing"
+        above, which reduces triangles by simplifying the outline itself.
+      </p>
+    </section>
+
+    <section class="panel" id="preview3d-panel">
+      <h2>4. 3D preview</h2>
+      <div class="viewer-wrap">
+        <canvas id="viewer-canvas"></canvas>
+        <div class="viewer-empty" id="viewer-empty">Load an image to preview the 3D model</div>
+      </div>
+      <div class="field-row">
+        <label class="checkbox"><input type="checkbox" id="wireframe" /> Show mesh triangles</label>
+        <button type="button" id="refresh-preview-btn">Refresh preview</button>
+        <span class="value" id="mesh-stats"></span>
+      </div>
+      <p class="hint">Drag to orbit, scroll to zoom. Previewed at the first size in the list below.</p>
+    </section>
+
     <section class="panel" id="sizes-panel">
-      <h2>3. Sizes to generate</h2>
+      <h2>5. Sizes to generate</h2>
       <div class="presets">
         <button type="button" class="preset-btn" data-preset="small">+ Small (50mm, 20mm)</button>
         <button type="button" class="preset-btn" data-preset="medium">+ Medium (100mm, 35mm)</button>
@@ -94,6 +141,6 @@
     <p>Runs entirely in this container — nothing is uploaded anywhere else.</p>
   </footer>
 
-  <script src="{{ url_for('static', filename='script.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

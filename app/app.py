@@ -6,8 +6,10 @@ from flask import Flask, abort, request, render_template, send_file
 
 from logo_to_stl import (
     ConversionError,
+    Orientation,
+    build_mesh,
     build_polygons_from_image,
-    polygons_to_stl_bytes,
+    mesh_to_stl_bytes,
     render_mask_preview,
 )
 
@@ -36,6 +38,31 @@ def _read_image_and_params():
     return image_bytes, threshold, invert, min_area_pct, simplify
 
 
+def _flag(name: str) -> bool:
+    return request.form.get(name, "false").lower() == "true"
+
+
+def _read_orientation() -> Orientation:
+    try:
+        rotate_deg = float(request.form.get("rotate_deg", 0))
+    except ValueError:
+        abort(400, "Invalid rotation")
+    return Orientation(
+        mirror_h=_flag("mirror_h"),
+        mirror_v=_flag("mirror_v"),
+        rotate_deg=rotate_deg,
+        lay_flat=_flag("lay_flat"),
+    )
+
+
+def _read_target_faces() -> int:
+    try:
+        target_faces = int(float(request.form.get("target_faces", 0)))
+    except ValueError:
+        abort(400, "Invalid triangle budget")
+    return max(0, target_faces)
+
+
 @app.route("/api/preview", methods=["POST"])
 def preview():
     try:
@@ -46,9 +73,53 @@ def preview():
     return send_file(io.BytesIO(png_bytes), mimetype="image/png")
 
 
+@app.route("/api/mesh", methods=["POST"])
+def mesh_preview():
+    """Return the finished mesh as binary STL so the browser can 3D-preview it.
+
+    The bytes are produced by the exact same path as /api/generate, so what the
+    user orbits on screen is what they download.
+    """
+    image_bytes, threshold, invert, min_area_pct, simplify = _read_image_and_params()
+    orientation = _read_orientation()
+    target_faces = _read_target_faces()
+    try:
+        width_mm = float(request.form.get("width_mm", 100))
+        thickness_mm = float(request.form.get("thickness_mm", 35))
+    except ValueError:
+        abort(400, "Invalid size")
+    if width_mm <= 0 or thickness_mm <= 0:
+        abort(400, "Width and thickness must be positive")
+
+    try:
+        polygons, px_width, _px_height = build_polygons_from_image(
+            image_bytes, threshold, invert, min_area_pct, simplify
+        )
+        if not polygons:
+            abort(400, "No shape could be detected in the image. Try adjusting the threshold.")
+        mesh = build_mesh(
+            polygons, px_width, width_mm, thickness_mm, orientation, target_faces
+        )
+        stl_bytes = mesh_to_stl_bytes(mesh)
+    except ConversionError as e:
+        abort(400, str(e))
+
+    resp = send_file(io.BytesIO(stl_bytes), mimetype="model/stl")
+    resp.headers["X-Triangle-Count"] = str(len(mesh.faces))
+    resp.headers["X-Watertight"] = "1" if mesh.is_watertight else "0"
+    size = mesh.extents
+    resp.headers["X-Size-Mm"] = ",".join(f"{v:.2f}" for v in size)
+    resp.headers["Access-Control-Expose-Headers"] = (
+        "X-Triangle-Count, X-Watertight, X-Size-Mm"
+    )
+    return resp
+
+
 @app.route("/api/generate", methods=["POST"])
 def generate():
     image_bytes, threshold, invert, min_area_pct, simplify = _read_image_and_params()
+    orientation = _read_orientation()
+    target_faces = _read_target_faces()
 
     sizes_json = request.form.get("sizes")
     if not sizes_json:
@@ -78,7 +149,11 @@ def generate():
             if width_mm <= 0 or thickness_mm <= 0:
                 abort(400, "Width and thickness must be positive")
 
-            stl_bytes = polygons_to_stl_bytes(polygons, px_width, width_mm, thickness_mm)
+            stl_bytes = mesh_to_stl_bytes(
+                build_mesh(
+                    polygons, px_width, width_mm, thickness_mm, orientation, target_faces
+                )
+            )
             safe_label = "".join(c if c.isalnum() or c in "-_" else "_" for c in label)
             filename = f"{safe_label}_{width_mm:g}mm_x_{thickness_mm:g}mm.stl"
             files.append((filename, stl_bytes))

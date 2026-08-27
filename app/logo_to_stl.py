@@ -1,16 +1,20 @@
-"""Convert a raster logo (PNG/JPG/etc.) into an extruded, correctly oriented STL mesh.
+"""Convert a logo (PNG/JPG/SVG/etc.) into an extruded, correctly oriented STL mesh.
 
 Pipeline:
-  1. Build a binary silhouette mask from the image (alpha channel if present,
+  1. If the input is SVG, rasterize it at high resolution first.
+  2. Build a binary silhouette mask from the image (alpha channel if present,
      otherwise by color distance from the auto-detected background color).
-  2. Trace the mask into polygons (with holes) using OpenCV contours.
-  3. Extrude each polygon along +Z so the model sits flat on the print bed
+  3. Trace the mask into polygons (with holes) using OpenCV contours.
+  4. Extrude each polygon along +Z so the model sits flat on the print bed
      (min Z == 0), with X/Y matching the image's footprint and Z the
      requested thickness.
+  5. Reorient (reference convention + user mirror/rotate/lay-flat) and
+     optionally decimate to a target triangle budget.
 """
 from __future__ import annotations
 
 import io
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -27,6 +31,55 @@ class ConversionError(Exception):
     """Raised when the image cannot be converted to a usable silhouette/mesh."""
 
 
+# --------------------------------------------------------------------------
+# SVG input
+# --------------------------------------------------------------------------
+
+# Rasterizing at a high fixed resolution keeps SVG edges crisp enough that the
+# contour tracer reproduces vector-quality curves, while letting SVG reuse the
+# exact same mask -> contour -> extrude pipeline as raster input (including
+# transparency handling, which SVGs almost always have).
+SVG_RASTER_PX = 2000
+
+
+def is_svg(data: bytes) -> bool:
+    head = data[:1024].lstrip()
+    if head[:5].lower() == b"<?xml" or head[:4].lower() == b"<svg":
+        return True
+    return bool(re.search(rb"<svg[\s>]", data[:4096], re.IGNORECASE))
+
+
+def rasterize_svg(data: bytes, target_px: int = SVG_RASTER_PX) -> bytes:
+    """Render an SVG to PNG bytes, scaled so its longest side is target_px."""
+    try:
+        import cairosvg
+    except Exception as exc:  # noqa: BLE001
+        raise ConversionError(f"SVG support unavailable: {exc}") from exc
+
+    try:
+        # Two passes: the first learns the SVG's intrinsic aspect ratio so the
+        # second can scale the longest side (not just width) to target_px.
+        probe = cairosvg.svg2png(bytestring=data, output_width=512)
+        with Image.open(io.BytesIO(probe)) as im:
+            pw, ph = im.size
+        if pw >= ph:
+            png = cairosvg.svg2png(bytestring=data, output_width=target_px)
+        else:
+            png = cairosvg.svg2png(bytestring=data, output_height=target_px)
+    except ConversionError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise ConversionError(f"Could not render SVG: {exc}") from exc
+    if not png:
+        raise ConversionError("SVG rendered to an empty image.")
+    return png
+
+
+def normalize_input(data: bytes) -> bytes:
+    """Return raster bytes for any supported input (SVG is rasterized)."""
+    return rasterize_svg(data) if is_svg(data) else data
+
+
 @dataclass
 class _RawShape:
     exterior: np.ndarray
@@ -34,6 +87,7 @@ class _RawShape:
 
 
 def _load_mask(image_bytes: bytes, threshold: float, invert: bool) -> np.ndarray:
+    image_bytes = normalize_input(image_bytes)
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     except Exception as exc:  # noqa: BLE001 - want a friendly message for any decode failure
@@ -209,23 +263,116 @@ def _extrude(polygons: list[Polygon], scale: float, thickness_mm: float) -> trim
     return trimesh.util.concatenate(meshes)
 
 
+@dataclass
+class Orientation:
+    """User-facing orientation tweaks, applied after the reference transform.
+
+    In reference space the artwork lies in the X/Z plane (X = horizontal,
+    Z = vertical) and Y is the extrusion/thickness axis, so:
+      - mirror_h  flips the artwork left/right  -> negate X
+      - mirror_v  flips the artwork up/down     -> negate Z
+      - rotate    spins the artwork in its own plane -> rotate about Y
+      - lay_flat  drops the model onto the bed so thickness runs along Z
+    """
+
+    mirror_h: bool = False
+    mirror_v: bool = False
+    rotate_deg: float = 0.0
+    lay_flat: bool = False
+
+    def matrix(self) -> np.ndarray:
+        m = np.eye(4)
+        if self.mirror_h:
+            m = np.diag([-1.0, 1.0, 1.0, 1.0]) @ m
+        if self.mirror_v:
+            m = np.diag([1.0, 1.0, -1.0, 1.0]) @ m
+        if self.rotate_deg:
+            m = trimesh.transformations.rotation_matrix(
+                np.radians(self.rotate_deg), [0, 1, 0]
+            ) @ m
+        if self.lay_flat:
+            m = trimesh.transformations.rotation_matrix(np.radians(-90), [1, 0, 0]) @ m
+        return m
+
+
+DEFAULT_ORIENTATION = Orientation()
+
+
+def _decimate(mesh: trimesh.Trimesh, target_faces: int) -> trimesh.Trimesh:
+    """Reduce the mesh toward target_faces, leaving it alone if already smaller.
+
+    fast_simplification is called directly rather than through
+    trimesh.simplify_quadric_decimation, whose backend varies by trimesh
+    version (4.x routes through open3d, which we don't ship).
+    """
+    if target_faces <= 0 or len(mesh.faces) <= target_faces:
+        return mesh
+    try:
+        import fast_simplification
+    except Exception as exc:  # noqa: BLE001
+        raise ConversionError(f"Mesh decimation unavailable: {exc}") from exc
+
+    # Extruded shapes are concatenated per-polygon, so coincident vertices must
+    # be welded before the decimator can collapse edges across them.
+    welded = mesh.copy()
+    welded.merge_vertices()
+    try:
+        verts, faces = fast_simplification.simplify(
+            np.asarray(welded.vertices, dtype=np.float32),
+            np.asarray(welded.faces, dtype=np.int32),
+            target_count=int(target_faces),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise ConversionError(f"Could not reduce the mesh: {exc}") from exc
+
+    # A decimator can collapse a thin-walled logo into nothing; keep the
+    # original rather than hand back a degenerate model.
+    if faces is None or len(faces) < 4:
+        return mesh
+    return trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+
+
+def build_mesh(
+    polygons: list[Polygon],
+    content_width_px: float,
+    width_mm: float,
+    thickness_mm: float,
+    orientation: Orientation | None = None,
+    target_faces: int = 0,
+) -> trimesh.Trimesh:
+    if not polygons:
+        raise ConversionError("No shapes to extrude.")
+    scale = width_mm / content_width_px
+    mesh = _extrude(polygons, scale, thickness_mm)
+    if target_faces:
+        mesh = _decimate(mesh, target_faces)
+    mesh.apply_transform(_REFERENCE_ORIENTATION)
+    mesh.apply_transform((orientation or DEFAULT_ORIENTATION).matrix())
+    # Sit flush at the origin (min X/Y/Z == 0), regardless of extrude_polygon's
+    # internal placement or the reorientation above.
+    mesh.apply_translation(-mesh.bounds[0])
+    return mesh
+
+
+def mesh_to_stl_bytes(mesh: trimesh.Trimesh) -> bytes:
+    buf = io.BytesIO()
+    mesh.export(buf, file_type="stl")
+    return buf.getvalue()
+
+
 def polygons_to_stl_bytes(
     polygons: list[Polygon],
     content_width_px: float,
     width_mm: float,
     thickness_mm: float,
+    orientation: Orientation | None = None,
+    target_faces: int = 0,
 ) -> bytes:
-    if not polygons:
-        raise ConversionError("No shapes to extrude.")
-    scale = width_mm / content_width_px
-    mesh = _extrude(polygons, scale, thickness_mm)
-    mesh.apply_transform(_REFERENCE_ORIENTATION)
-    # Sit flush at the origin (min X/Y/Z == 0), regardless of extrude_polygon's
-    # internal placement or the reorientation above.
-    mesh.apply_translation(-mesh.bounds[0])
-    buf = io.BytesIO()
-    mesh.export(buf, file_type="stl")
-    return buf.getvalue()
+    return mesh_to_stl_bytes(
+        build_mesh(
+            polygons, content_width_px, width_mm, thickness_mm, orientation, target_faces
+        )
+    )
 
 
 def render_mask_preview(

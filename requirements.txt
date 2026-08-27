@@ -6,3 +6,5 @@ opencv-python-headless==4.10.0.84
 shapely==2.0.5
 trimesh==4.4.7
 mapbox_earcut==1.0.1
+cairosvg==2.7.1
+fast-simplification==0.1.7
