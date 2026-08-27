@@ -58,19 +58,28 @@ def _load_mask(image_bytes: bytes, threshold: float, invert: bool) -> np.ndarray
     if invert:
         mask = ~mask
 
-    mask_u8 = mask.astype(np.uint8) * 255
-    kernel = np.ones((3, 3), np.uint8)
-    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, kernel)
-    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, kernel)
-    return mask_u8
+    # No morphological open/close here: even a 3x3 kernel severs thin
+    # single-pixel line art (e.g. a rifle outline) that clean vector-style
+    # logos rely on. Small speckle noise is filtered later by min_area_pct
+    # in _mask_to_shapes instead, which doesn't erode real thin detail.
+    return mask.astype(np.uint8) * 255
 
 
 def _mask_to_shapes(mask_u8: np.ndarray, min_area_pct: float, simplify: float) -> list[_RawShape]:
+    """Trace the mask into shapes, honoring arbitrary nesting depth.
+
+    Artwork can nest more than one level deep - e.g. a solid shield with a
+    cut-out maple leaf that itself contains a solid figure "island" sitting
+    inside that cut-out. RETR_TREE gives the full parent/child hierarchy;
+    contours at even depth are solid fills, odd depth are holes cut into
+    their parent, and any children of a hole become independent solid
+    shapes of their own (recursively).
+    """
     h, w = mask_u8.shape
     min_area = max(4.0, min_area_pct / 100.0 * w * h)
     eps = max(simplify, 0.1)
 
-    contours, hierarchy = cv2.findContours(mask_u8, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(mask_u8, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     if hierarchy is None:
         return []
     hierarchy = hierarchy[0]
@@ -81,14 +90,24 @@ def _mask_to_shapes(mask_u8: np.ndarray, min_area_pct: float, simplify: float) -
         if parent != -1:
             children[parent].append(idx)
 
+    depth_of: dict[int, int] = {}
+
+    def depth(i: int) -> int:
+        if i not in depth_of:
+            parent = hierarchy[i][3]
+            depth_of[i] = 0 if parent == -1 else depth(parent) + 1
+        return depth_of[i]
+
     def simplify_contour(cnt) -> np.ndarray:
         approx = cv2.approxPolyDP(cnt, eps, True)
         return approx.reshape(-1, 2).astype(np.float64)
 
     shapes = []
-    for idx, h_row in enumerate(hierarchy):
-        if h_row[3] != -1:
-            continue  # only start from top-level (outer) contours
+    # Ascending depth order matters for the raster preview: a shield's solid
+    # fill must be drawn (and its hole cut) before an island nested inside
+    # that hole draws its own fill back on top.
+    solid_indices = sorted((i for i in range(len(contours)) if depth(i) % 2 == 0), key=depth)
+    for idx in solid_indices:
         if cv2.contourArea(contours[idx]) < min_area:
             continue
         ext = simplify_contour(contours[idx])
@@ -158,6 +177,24 @@ def build_polygons_from_image(
     return polygons, max_x - min_x, max_y - min_y
 
 
+# extrude_polygon lays the shape out as (X, Y=footprint, Z=thickness). The
+# reference STLs shipped with this project (0.stl/1.stl/2.stl) instead use
+# Y as the thickness/extrusion axis, Z as "up" (vertical in the artwork),
+# and have X mirrored relative to the source image. This matrix reproduces
+# that exact convention: new_x=-x, new_y=z(thickness), new_z=y(vertical).
+# Its determinant is +1 (a rotation, not a reflection), so face winding /
+# normals stay correct without any extra flipping.
+_REFERENCE_ORIENTATION = np.array(
+    [
+        [-1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1],
+    ],
+    dtype=float,
+)
+
+
 def _extrude(polygons: list[Polygon], scale: float, thickness_mm: float) -> trimesh.Trimesh:
     meshes = []
     for poly in polygons:
@@ -182,8 +219,9 @@ def polygons_to_stl_bytes(
         raise ConversionError("No shapes to extrude.")
     scale = width_mm / content_width_px
     mesh = _extrude(polygons, scale, thickness_mm)
-    # Sit flush at the origin: flat on the print bed (min Z == 0) and with
-    # min X/Y == 0, regardless of extrude_polygon's internal placement.
+    mesh.apply_transform(_REFERENCE_ORIENTATION)
+    # Sit flush at the origin (min X/Y/Z == 0), regardless of extrude_polygon's
+    # internal placement or the reorientation above.
     mesh.apply_translation(-mesh.bounds[0])
     buf = io.BytesIO()
     mesh.export(buf, file_type="stl")

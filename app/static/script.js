@@ -26,10 +26,13 @@
   let currentFile = null;
   let previewDebounce = null;
 
+  // Thickness is deliberately a substantial fraction of width (~30-40%),
+  // matching the reference STLs shipped with this project - this is meant
+  // to emboss/press into another surface, not sit as a thin flat badge.
   const PRESETS = {
-    small: { label: "small", width_mm: 50, thickness_mm: 3 },
-    medium: { label: "medium", width_mm: 100, thickness_mm: 4 },
-    large: { label: "large", width_mm: 150, thickness_mm: 5 },
+    small: { label: "small", width_mm: 50, thickness_mm: 20 },
+    medium: { label: "medium", width_mm: 100, thickness_mm: 35 },
+    large: { label: "large", width_mm: 150, thickness_mm: 50 },
   };
 
   function addSizeRow(preset = {}) {
@@ -54,7 +57,7 @@
     thicknessInput.type = "number";
     thicknessInput.min = "0.1";
     thicknessInput.step = "any";
-    thicknessInput.value = preset.thickness_mm ?? 4;
+    thicknessInput.value = preset.thickness_mm ?? 30;
     thicknessTd.appendChild(thicknessInput);
 
     const removeTd = document.createElement("td");

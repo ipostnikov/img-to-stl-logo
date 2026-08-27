@@ -1,20 +1,27 @@
 # Logo → STL
 
-Turn a raster logo (PNG, JPG, etc.) into an extruded, correctly-oriented STL
-file, ready to 3D print — in as many sizes as you want, at once.
+Turn a raster logo (PNG, JPG, etc.) into an extruded STL, oriented to match
+the hand-made reference STLs in this repo (`0.stl`/`1.stl`/`2.stl`) — meant
+for embossing/pressing the design into another surface, not just printing a
+thin flat badge. Generate as many sizes as you want, at once.
 
 ## How it works
 
 1. Upload an image. If it has a transparent background, that's used directly;
    otherwise the background color is auto-detected from the image corners and
    subtracted.
-2. The resulting silhouette (including any holes/cutouts, e.g. a maple leaf
-   cut out of a shield) is traced into polygons.
-3. Each polygon is extruded upward into a solid with a flat bottom sitting at
-   Z = 0 — the model always comes out lying flat and print-ready, no manual
-   rotation needed.
+2. The resulting silhouette is traced into polygons, honoring arbitrary
+   nesting (e.g. a shield with a maple-leaf-shaped hole, which itself has a
+   solid figure sitting inside it — a hole-within-a-hole "island" comes back
+   as its own raised detail, not a flat void).
+3. Each polygon is extruded into a solid, then reoriented to match the
+   project's reference STLs exactly: **Y is the thickness/extrusion axis**,
+   **Z is vertical** (up in the artwork), and **X is mirrored** relative to
+   the source image. The model sits flush at the origin (min X/Y/Z = 0).
 4. You specify one or more (width in mm, thickness in mm) pairs and get one
    STL per size (aspect ratio is preserved automatically from the image).
+   Thickness defaults to a substantial fraction of the width (not a thin
+   veneer), matching the reference examples.
 
 ## Run it
 
