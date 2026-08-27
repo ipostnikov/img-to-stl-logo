@@ -1,0 +1,5 @@
+services:
+  logo-to-stl:
+    build: .
+    ports:
+      - "8080:8080"

@@ -1,0 +1,5 @@
+.git
+.claude
+*.stl
+__pycache__
+*.pyc
