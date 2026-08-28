@@ -20,8 +20,6 @@ http://localhost:8080
 - Sizes are small: presets are 5/7.5/10 mm wide. Thickness is the depth of the
   prism you cut into the shell, not the final emboss height, so 10 mm is
   deliberately more than you need.
-- `0.stl`, `1.stl`, `2.stl` are hand-made logos I use as the reference for
-  orientation and scale.
 - There's a built-in image editor (brush, rectangle erase, crop) for stripping
   the text off a logo before tracing.
 - The triangle budget slider decimates the mesh. Push it too far and the model

@@ -232,7 +232,7 @@ def build_polygons_from_image(
 
 
 # extrude_polygon lays the shape out as (X, Y=footprint, Z=thickness). The
-# reference STLs shipped with this project (0.stl/1.stl/2.stl) instead use
+# hand-made reference STLs this was matched against instead use
 # Y as the thickness/extrusion axis and Z as "up" (vertical in the artwork):
 # new_x=x, new_y=-z(thickness), new_z=y(vertical). X keeps the source image's
 # handedness, so the logo reads the right way round without ticking "Mirror".

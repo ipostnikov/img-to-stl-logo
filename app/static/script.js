@@ -131,7 +131,7 @@ import { createEditor } from "./editor.js";
   }
 
   // These logos go on earmoulds and hearing-aid shells, so the artwork is only
-  // a few mm across: the reference STLs (0/1/2.stl) span 4.7-10.2 mm in-plane.
+  // a few mm across: the hand-made reference logos span 4.7-10.2 mm in-plane.
   // Thickness is the depth of the prism that gets booleaned into the shell, not
   // the final emboss height, so it is deliberately generous - a 5 mm logo at
   // 10 mm deep is the size that has been used successfully in CAD.
