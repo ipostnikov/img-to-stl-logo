@@ -397,10 +397,13 @@ def render_mask_preview(
         if shape.holes:
             cv2.fillPoly(fill, [hole.astype(np.int32) for hole in shape.holes], 0)
 
-    preview = np.full((h, w, 3), (24, 24, 26), dtype=np.uint8)
-    preview[fill > 0] = (255, 176, 59)
+    # Amber on a transparent ground: the pane's own surface shows through, so
+    # the silhouette reads the same way in either theme and stray specks are
+    # visible against it.
+    preview = np.zeros((h, w, 4), dtype=np.uint8)
+    preview[fill > 0] = (201, 143, 60, 255)
 
-    ok, buf = cv2.imencode(".png", cv2.cvtColor(preview, cv2.COLOR_RGB2BGR))
+    ok, buf = cv2.imencode(".png", cv2.cvtColor(preview, cv2.COLOR_RGBA2BGRA))
     if not ok:
         raise ConversionError("Failed to render preview image.")
     return buf.tobytes()

@@ -2,7 +2,7 @@
 // hand-rolled orbit control (three.js core only, no extra vendored addons).
 import * as THREE from "./vendor/three.module.min.js";
 
-const BG = 0x141416;
+const BG = 0x20211f;
 const SOLID = 0xffb03b;
 
 function parseBinarySTL(buffer) {
