@@ -2,7 +2,8 @@
 __pycache__/
 *.pyc
 
-# local reference exports, not part of the repo
+# local reference/source assets, not part of the repo
 0.stl
 1.stl
 2.stl
+logo-png.png
