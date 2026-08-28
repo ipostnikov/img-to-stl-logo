@@ -233,15 +233,17 @@ def build_polygons_from_image(
 
 # extrude_polygon lays the shape out as (X, Y=footprint, Z=thickness). The
 # reference STLs shipped with this project (0.stl/1.stl/2.stl) instead use
-# Y as the thickness/extrusion axis, Z as "up" (vertical in the artwork),
-# and have X mirrored relative to the source image. This matrix reproduces
-# that exact convention: new_x=-x, new_y=z(thickness), new_z=y(vertical).
-# Its determinant is +1 (a rotation, not a reflection), so face winding /
-# normals stay correct without any extra flipping.
+# Y as the thickness/extrusion axis and Z as "up" (vertical in the artwork):
+# new_x=x, new_y=-z(thickness), new_z=y(vertical). X keeps the source image's
+# handedness, so the logo reads the right way round without ticking "Mirror".
+# The thickness axis is negated purely to keep the determinant at +1 (a
+# rotation, not a reflection), so face winding / normals stay correct without
+# any extra flipping; which way the extrusion points is irrelevant, since the
+# model is re-centred on the origin afterwards.
 _REFERENCE_ORIENTATION = np.array(
     [
-        [-1, 0, 0, 0],
-        [0, 0, 1, 0],
+        [1, 0, 0, 0],
+        [0, 0, -1, 0],
         [0, 1, 0, 0],
         [0, 0, 0, 1],
     ],
