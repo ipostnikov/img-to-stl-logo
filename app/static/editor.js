@@ -65,16 +65,18 @@ export function createEditor({ canvas, overlay, onChange }) {
   const octx = overlay.getContext("2d");
 
   // Tallest the editor is allowed to get on screen, so a portrait logo can't
-  // push the rest of the form off the page.
+  // push the rest of the form off the page. The stage is a fixed-height grid
+  // cell now, so prefer its measured height when it has one.
   const MAX_DISPLAY_H = 420;
 
   function fitDisplay() {
-    // Measure the <details>, not the immediate parent: the stage is an
-    // inline-block sized *by* the canvas, so measuring it would be circular
-    // and collapse the editor to a sliver.
-    const host = canvas.closest("details") || canvas.parentElement;
+    // Measure the stage, not the immediate parent: the canvases are absolutely
+    // positioned inside it, so anything sized *by* them would be circular and
+    // would collapse the editor to a sliver.
+    const host = canvas.closest(".editor-stage") || canvas.parentElement;
     const avail = Math.max(120, host.clientWidth - 24);
-    const scale = Math.min(avail / work.width, MAX_DISPLAY_H / work.height, 1);
+    const availH = Math.max(120, (host.clientHeight || MAX_DISPLAY_H) - 24);
+    const scale = Math.min(avail / work.width, Math.min(availH, MAX_DISPLAY_H) / work.height, 1);
     const w = Math.max(1, Math.round(work.width * scale));
     const h = Math.max(1, Math.round(work.height * scale));
     for (const c of [canvas, overlay]) {

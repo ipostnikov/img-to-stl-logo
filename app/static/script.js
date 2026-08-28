@@ -2,53 +2,71 @@ import { createViewer } from "./viewer.js";
 import { createEditor } from "./editor.js";
 
 (() => {
-  const imageInput = document.getElementById("image-input");
-  const dropzone = document.getElementById("dropzone");
-  const dropzoneText = document.getElementById("dropzone-text");
-  const originalPreview = document.getElementById("original-preview");
-  const maskPreview = document.getElementById("mask-preview");
+  const $ = (id) => document.getElementById(id);
 
-  const thresholdInput = document.getElementById("threshold");
-  const thresholdValue = document.getElementById("threshold-value");
-  const invertInput = document.getElementById("invert");
-  const simplifyInput = document.getElementById("simplify");
-  const simplifyValue = document.getElementById("simplify-value");
-  const minAreaInput = document.getElementById("min-area");
-  const minAreaValue = document.getElementById("min-area-value");
-  const advancedToggle = document.getElementById("advanced-toggle");
-  const advancedFields = document.getElementById("advanced-fields");
-  const advancedFields2 = document.getElementById("advanced-fields-2");
+  const imageInput = $("image-input");
+  const dropzone = $("dropzone");
+  const centreBody = $("centre-body");
+  const fileNameEl = $("file-name");
+  const replaceBtn = $("replace-btn");
+  const originalPreview = $("original-preview");
+  const originalDims = $("original-dims");
+  const maskPreview = $("mask-preview");
+  const maskMeta = $("mask-meta");
 
-  const sizesBody = document.getElementById("sizes-body");
-  const addSizeBtn = document.getElementById("add-size-btn");
+  const rail = $("rail");
+  const thresholdInput = $("threshold");
+  const thresholdValue = $("threshold-value");
+  const invertInput = $("invert");
+  const simplifyInput = $("simplify");
+  const simplifyValue = $("simplify-value");
+  const minAreaInput = $("min-area");
+  const minAreaValue = $("min-area-value");
+  const advancedToggle = $("advanced-toggle");
+  const advancedFields = $("advanced-fields");
+
+  const sizesBody = $("sizes-body");
+  const sizeCount = $("size-count");
+  const addSizeBtn = $("add-size-btn");
   const presetButtons = document.querySelectorAll(".preset-btn");
 
-  const mirrorHInput = document.getElementById("mirror-h");
-  const mirrorVInput = document.getElementById("mirror-v");
-  const rotateInput = document.getElementById("rotate");
-  const layFlatInput = document.getElementById("lay-flat");
-  const trianglesInput = document.getElementById("triangles");
-  const trianglesValue = document.getElementById("triangles-value");
+  const mirrorHBtn = $("mirror-h");
+  const mirrorVBtn = $("mirror-v");
+  const rotateGroup = $("rotate");
+  const layFlatInput = $("lay-flat");
+  const trianglesInput = $("triangles");
+  const trianglesValue = $("triangles-value");
 
-  const viewerCanvas = document.getElementById("viewer-canvas");
-  const viewerEmpty = document.getElementById("viewer-empty");
-  const wireframeInput = document.getElementById("wireframe");
-  const refreshPreviewBtn = document.getElementById("refresh-preview-btn");
-  const resetViewBtn = document.getElementById("reset-view-btn");
-  const downloadPreviewBtn = document.getElementById("download-preview-btn");
-  const meshStats = document.getElementById("mesh-stats");
+  const viewerCanvas = $("viewer-canvas");
+  const viewerEmpty = $("viewer-empty");
+  const wireframeBtn = $("wireframe-btn");
+  const refreshPreviewBtn = $("refresh-preview-btn");
+  const resetViewBtn = $("reset-view-btn");
+  const downloadPreviewBtn = $("download-preview-btn");
+  const statsbar = $("statsbar");
+  const statSizeLabel = $("stat-size-label");
+  const statTris = $("stat-tris");
+  const statDims = $("stat-dims");
+  const statParts = $("stat-parts");
+  const statWatertight = $("stat-watertight");
+  const meshError = $("mesh-error");
+  const meshErrorText = $("mesh-error-text");
 
-  const editorDetails = document.getElementById("editor-details");
-  const editorCanvas = document.getElementById("editor-canvas");
-  const editorOverlay = document.getElementById("editor-overlay");
-  const editorUndo = document.getElementById("editor-undo");
-  const editorReset = document.getElementById("editor-reset");
-  const brushSizeInput = document.getElementById("brush-size");
-  const brushSizeValue = document.getElementById("brush-size-value");
-  const toolButtons = document.querySelectorAll(".tool-btn");
+  const editImageBtn = $("edit-image-btn");
+  const editorBar = $("editor-bar");
+  const editorStage = $("editor-stage");
+  const editorCanvas = $("editor-canvas");
+  const editorOverlay = $("editor-overlay");
+  const editorUndo = $("editor-undo");
+  const editorReset = $("editor-reset");
+  const editorDone = $("editor-done");
+  const brushField = $("brush-field");
+  const brushSizeInput = $("brush-size");
+  const brushSizeValue = $("brush-size-value");
+  const toolButtons = document.querySelectorAll("#tool-group .seg");
 
-  const generateBtn = document.getElementById("generate-btn");
-  const statusEl = document.getElementById("status");
+  const generateButtons = [$("generate-btn"), $("generate-btn-2")];
+  const statusEl = $("status");
 
   let currentFile = null;
   let previewDebounce = null;
@@ -64,6 +82,37 @@ import { createEditor } from "./editor.js";
   let needsViewReset = true;
   let lastMeshBlob = null;
   let lastMeshName = "preview.stl";
+  // The size row the 3D viewport is currently showing.
+  let previewedRow = null;
+
+  // --- theme ---------------------------------------------------------------
+  // One stylesheet, one [data-theme] attribute; the 3D viewport is the only
+  // surface that stays put across the switch.
+  function setTheme(name) {
+    document.documentElement.dataset.theme = name;
+    try {
+      localStorage.setItem("theme", name);
+    } catch { /* private mode: this session only */ }
+    document
+      .querySelectorAll("[data-theme-set]")
+      .forEach((btn) => btn.classList.toggle("is-active", btn.dataset.themeSet === name));
+  }
+  document.querySelectorAll("[data-theme-set]").forEach((btn) => {
+    btn.addEventListener("click", () => setTheme(btn.dataset.themeSet));
+  });
+  setTheme(document.documentElement.dataset.theme || "light");
+
+  // Keep every slider's filled portion in step with its value.
+  function paintRange(el) {
+    const min = Number(el.min || 0);
+    const max = Number(el.max || 100);
+    const pct = max > min ? ((Number(el.value) - min) / (max - min)) * 100 : 0;
+    el.style.setProperty("--fill", `${pct}%`);
+  }
+  document.querySelectorAll('input[type="range"]').forEach((el) => {
+    paintRange(el);
+    el.addEventListener("input", () => paintRange(el));
+  });
 
   const viewer = createViewer(viewerCanvas);
   // Exposed for the browser test to inspect orbit state.
@@ -141,65 +190,109 @@ import { createEditor } from "./editor.js";
     large: { label: "large", width_mm: 10, thickness_mm: 10 },
   };
 
+  // --- size table ----------------------------------------------------------
   function addSizeRow(preset = {}) {
-    const row = document.createElement("tr");
+    const row = document.createElement("div");
+    row.className = "size-row size-item";
 
-    const labelTd = document.createElement("td");
     const labelInput = document.createElement("input");
     labelInput.type = "text";
     labelInput.value = preset.label ?? `size-${sizesBody.children.length + 1}`;
-    labelTd.appendChild(labelInput);
 
-    const widthTd = document.createElement("td");
     const widthInput = document.createElement("input");
     widthInput.type = "number";
+    widthInput.className = "num";
     widthInput.min = "0.1";
     widthInput.step = "any";
-    widthInput.value = preset.width_mm ?? 5;
-    widthTd.appendChild(widthInput);
+    widthInput.value = (preset.width_mm ?? 5).toFixed(1);
 
-    const thicknessTd = document.createElement("td");
     const thicknessInput = document.createElement("input");
     thicknessInput.type = "number";
+    thicknessInput.className = "num";
     thicknessInput.min = "0.1";
     thicknessInput.step = "any";
-    thicknessInput.value = preset.thickness_mm ?? 10;
-    thicknessTd.appendChild(thicknessInput);
+    thicknessInput.value = (preset.thickness_mm ?? 10).toFixed(1);
+    for (const input of [widthInput, thicknessInput]) {
+      input.addEventListener("change", () => {
+        const n = parseFloat(input.value);
+        if (Number.isFinite(n)) input.value = n.toFixed(1);
+      });
+    }
 
-    const removeTd = document.createElement("td");
     const removeBtn = document.createElement("button");
     removeBtn.type = "button";
     removeBtn.className = "remove-row-btn";
     removeBtn.textContent = "✕";
     removeBtn.title = "Remove size";
-    removeBtn.addEventListener("click", () => row.remove());
-    removeTd.appendChild(removeBtn);
+    removeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wasPreviewed = row === previewedRow;
+      row.remove();
+      if (wasPreviewed) {
+        previewedRow = null;
+        selectRow(sizesBody.firstElementChild);
+      }
+      updateSizeCount();
+    });
 
-    row.append(labelTd, widthTd, thicknessTd, removeTd);
+    // Rows are click-to-preview: the 3D view follows the row you point at,
+    // rather than always showing whichever size happens to be first.
+    row.addEventListener("click", (e) => {
+      if (e.target.tagName === "INPUT") return;
+      selectRow(row);
+    });
+
+    row.append(labelInput, widthInput, thicknessInput, removeBtn);
     sizesBody.appendChild(row);
+    updateSizeCount();
+    if (!previewedRow) selectRow(row);
+    return row;
+  }
+
+  function selectRow(row) {
+    if (!row) {
+      previewedRow = null;
+      return;
+    }
+    if (previewedRow === row) return;
+    previewedRow = row;
+    for (const r of sizesBody.children) r.classList.toggle("is-previewed", r === row);
+    scheduleMeshPreview();
+  }
+
+  function updateSizeCount() {
+    const n = sizesBody.children.length;
+    sizeCount.textContent = `${n} file${n === 1 ? "" : "s"}`;
+  }
+
+  function readRow(row) {
+    const [labelInput, widthInput, thicknessInput] = row.querySelectorAll("input");
+    const width_mm = parseFloat(widthInput.value);
+    const thickness_mm = parseFloat(thicknessInput.value);
+    if (!Number.isFinite(width_mm) || !Number.isFinite(thickness_mm)) return null;
+    return { label: labelInput.value.trim() || "logo", width_mm, thickness_mm };
   }
 
   function collectSizes() {
-    const sizes = [];
-    for (const row of sizesBody.children) {
-      const [labelInput, widthInput, thicknessInput] = row.querySelectorAll("input");
-      const width_mm = parseFloat(widthInput.value);
-      const thickness_mm = parseFloat(thicknessInput.value);
-      if (!Number.isFinite(width_mm) || !Number.isFinite(thickness_mm)) continue;
-      sizes.push({
-        label: labelInput.value.trim() || "logo",
-        width_mm,
-        thickness_mm,
-      });
-    }
-    return sizes;
+    return [...sizesBody.children].map(readRow).filter(Boolean);
   }
 
-  // The 3D preview is rendered at the first size in the table.
-  sizesBody.addEventListener("input", scheduleMeshPreview);
+  /** The size the 3D viewport is previewing. */
+  function previewSize() {
+    const row = previewedRow ?? sizesBody.firstElementChild;
+    return row ? readRow(row) : null;
+  }
 
-  addSizeBtn.addEventListener("click", () => addSizeRow());
+  sizesBody.addEventListener("input", (e) => {
+    // Editing a row's numbers implicitly makes it the one being judged.
+    const row = e.target.closest(".size-item");
+    if (row) selectRow(row);
+    scheduleMeshPreview();
+  });
+
+  addSizeBtn.addEventListener("click", () => selectRow(addSizeRow()));
   presetButtons.forEach((btn) => {
+    // Presets append rather than replace, so "all three" stays two clicks away.
     btn.addEventListener("click", () => addSizeRow(PRESETS[btn.dataset.preset]));
   });
 
@@ -208,31 +301,55 @@ import { createEditor } from "./editor.js";
   addSizeRow(PRESETS.medium);
   addSizeRow(PRESETS.large);
 
-  advancedToggle.addEventListener("change", () => {
-    advancedFields.hidden = !advancedToggle.checked;
-    advancedFields2.hidden = !advancedToggle.checked;
+  // --- rail controls -------------------------------------------------------
+  advancedToggle.addEventListener("click", () => {
+    const open = advancedFields.hidden;
+    advancedFields.hidden = !open;
+    advancedToggle.textContent = open ? "Advanced ▾" : "Advanced ▸";
+    advancedToggle.setAttribute("aria-expanded", String(open));
   });
 
-  function bindRangeDisplay(input, display, digits = 0) {
+  function bindRangeDisplay(input, display, digits = 0, suffix = "") {
     input.addEventListener("input", () => {
-      display.textContent = Number(input.value).toFixed(digits);
+      display.textContent = Number(input.value).toFixed(digits) + suffix;
       schedulePreview();
     });
   }
   bindRangeDisplay(thresholdInput, thresholdValue, 0);
   bindRangeDisplay(simplifyInput, simplifyValue, 1);
-  bindRangeDisplay(minAreaInput, minAreaValue, 2);
+  bindRangeDisplay(minAreaInput, minAreaValue, 2, "%");
   invertInput.addEventListener("change", schedulePreview);
 
-  [mirrorHInput, mirrorVInput, layFlatInput].forEach((el) =>
-    el.addEventListener("change", scheduleMeshPreview)
-  );
-  rotateInput.addEventListener("change", scheduleMeshPreview);
+  function bindToggleButton(btn) {
+    btn.addEventListener("click", () => {
+      btn.setAttribute("aria-pressed", btn.getAttribute("aria-pressed") === "true" ? "false" : "true");
+      scheduleMeshPreview();
+    });
+  }
+  bindToggleButton(mirrorHBtn);
+  bindToggleButton(mirrorVBtn);
+  const isPressed = (btn) => btn.getAttribute("aria-pressed") === "true";
+
+  let rotateDeg = 0;
+  rotateGroup.addEventListener("click", (e) => {
+    const btn = e.target.closest(".seg");
+    if (!btn) return;
+    rotateDeg = Number(btn.dataset.rotate);
+    for (const b of rotateGroup.children) b.classList.toggle("is-active", b === btn);
+    scheduleMeshPreview();
+  });
+
+  layFlatInput.addEventListener("change", scheduleMeshPreview);
   trianglesInput.addEventListener("input", () => {
     updateTriangleLabel();
     scheduleMeshPreview();
   });
-  wireframeInput.addEventListener("change", () => viewer.setWireframe(wireframeInput.checked));
+
+  wireframeBtn.addEventListener("click", () => {
+    const on = !isPressed(wireframeBtn);
+    wireframeBtn.setAttribute("aria-pressed", String(on));
+    viewer.setWireframe(on);
+  });
   refreshPreviewBtn.addEventListener("click", runMeshPreview);
   resetViewBtn.addEventListener("click", () => viewer.resetView());
   downloadPreviewBtn.addEventListener("click", () => {
@@ -241,26 +358,36 @@ import { createEditor } from "./editor.js";
   updateTriangleLabel();
 
   // --- image editor -------------------------------------------------------
+  function setEditing(on) {
+    editorBar.hidden = !on;
+    editorStage.hidden = !on;
+    centreBody.classList.toggle("is-editing", on);
+    if (on) {
+      // The stage has no width until it is actually laid out.
+      requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    }
+  }
+  editImageBtn.addEventListener("click", () => setEditing(true));
+  editorDone.addEventListener("click", () => setEditing(false));
+
   toolButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       toolButtons.forEach((b) => b.classList.toggle("is-active", b === btn));
       editor.setTool(btn.dataset.tool);
-      editorCanvas.classList.toggle("crop-cursor", btn.dataset.tool !== "erase-brush");
+      // Brush size only means anything while the brush is the active tool.
+      brushField.hidden = btn.dataset.tool !== "erase-brush";
     });
   });
   brushSizeInput.addEventListener("input", () => {
-    brushSizeValue.textContent = brushSizeInput.value;
+    brushSizeValue.textContent = `${brushSizeInput.value}px`;
     editor.setBrushSize(Number(brushSizeInput.value));
   });
+  brushSizeValue.textContent = `${brushSizeInput.value}px`;
   editor.setBrushSize(Number(brushSizeInput.value));
   editorUndo.addEventListener("click", () => editor.undo());
   editorReset.addEventListener("click", () => editor.reset());
-  // The canvas is sized from its container, which has no width until the
-  // <details> is actually open.
-  editorDetails.addEventListener("toggle", () => {
-    if (editorDetails.open) window.dispatchEvent(new Event("resize"));
-  });
 
+  // --- file intake ---------------------------------------------------------
   function setDropzoneFile(file) {
     const isSvg = /\.svg$/i.test(file?.name || "") || file?.type === "image/svg+xml";
     if (!file || (!file.type.startsWith("image/") && !isSvg)) {
@@ -273,9 +400,22 @@ import { createEditor } from "./editor.js";
     updateTriangleLabel();
     // A different logo deserves a freshly framed camera.
     needsViewReset = true;
-    dropzoneText.textContent = file.name;
+    setEditing(false);
+
+    fileNameEl.textContent = file.name;
+    fileNameEl.classList.add("has-file");
+    replaceBtn.hidden = false;
+    editImageBtn.hidden = false;
+    rail.classList.remove("is-idle");
+    centreBody.classList.remove("is-empty");
     originalPreview.src = URL.createObjectURL(file);
-    generateBtn.disabled = false;
+    originalPreview.onload = () => {
+      originalDims.textContent =
+        originalPreview.naturalWidth
+          ? `${originalPreview.naturalWidth}×${originalPreview.naturalHeight}`
+          : "";
+    };
+    generateButtons.forEach((b) => (b.disabled = false));
     editor
       .load(file)
       .then(() => {
@@ -287,20 +427,24 @@ import { createEditor } from "./editor.js";
   }
 
   imageInput.addEventListener("change", () => setDropzoneFile(imageInput.files[0]));
+  replaceBtn.addEventListener("click", () => imageInput.click());
 
+  // Once the previews are up the dropzone is gone, so the whole centre column
+  // is the drop target.
+  const dropTarget = $("centre");
   ["dragenter", "dragover"].forEach((evt) =>
-    dropzone.addEventListener(evt, (e) => {
+    dropTarget.addEventListener(evt, (e) => {
       e.preventDefault();
       dropzone.classList.add("dragover");
     })
   );
   ["dragleave", "drop"].forEach((evt) =>
-    dropzone.addEventListener(evt, (e) => {
+    dropTarget.addEventListener(evt, (e) => {
       e.preventDefault();
       dropzone.classList.remove("dragover");
     })
   );
-  dropzone.addEventListener("drop", (e) => {
+  dropTarget.addEventListener("drop", (e) => {
     const file = e.dataTransfer.files[0];
     if (file) setDropzoneFile(file);
   });
@@ -314,7 +458,7 @@ import { createEditor } from "./editor.js";
     );
   }
 
-  // Clipboard images arrive as nameless blobs; give them a name so the dropzone
+  // Clipboard images arrive as nameless blobs; give them a name so the header
   // label and the STL's Content-Disposition filename stay meaningful.
   function nameForPastedBlob(blob) {
     const ext = { "image/svg+xml": "svg", "image/jpeg": "jpg" }[blob.type] || "png";
@@ -350,15 +494,16 @@ import { createEditor } from "./editor.js";
     setStatus("Pasted SVG markup.");
   });
 
+  // --- requests ------------------------------------------------------------
   function currentParams() {
     const form = new FormData();
     form.append("threshold", thresholdInput.value);
     form.append("invert", invertInput.checked ? "true" : "false");
     form.append("simplify", simplifyInput.value);
     form.append("min_area_pct", minAreaInput.value);
-    form.append("mirror_h", mirrorHInput.checked ? "true" : "false");
-    form.append("mirror_v", mirrorVInput.checked ? "true" : "false");
-    form.append("rotate_deg", rotateInput.value);
+    form.append("mirror_h", isPressed(mirrorHBtn) ? "true" : "false");
+    form.append("mirror_v", isPressed(mirrorVBtn) ? "true" : "false");
+    form.append("rotate_deg", String(rotateDeg));
     form.append("lay_flat", layFlatInput.checked ? "true" : "false");
     form.append("target_faces", String(targetFaces()));
     return form;
@@ -376,7 +521,7 @@ import { createEditor } from "./editor.js";
     if (!pct) {
       trianglesValue.textContent = "auto";
     } else if (fullTriangleCount) {
-      trianglesValue.textContent = `${pct}% (~${targetFaces().toLocaleString()})`;
+      trianglesValue.textContent = `${pct}% · ${targetFaces().toLocaleString()}`;
     } else {
       trianglesValue.textContent = `${pct}%`;
     }
@@ -395,9 +540,14 @@ import { createEditor } from "./editor.js";
     meshDebounce = setTimeout(runMeshPreview, 450);
   }
 
+  function showMeshError(msg) {
+    meshErrorText.textContent = msg;
+    meshError.hidden = !msg;
+  }
+
   async function runMeshPreview() {
     if (!currentFile) return;
-    const size = collectSizes()[0];
+    const size = previewSize();
     if (!size) {
       setStatus("Add at least one size to preview.", true);
       return;
@@ -426,14 +576,13 @@ import { createEditor } from "./editor.js";
       if (requestId !== meshRequestId) return;
 
       const triangles = viewer.load(buffer, {
-        showWireframe: wireframeInput.checked,
+        showWireframe: isPressed(wireframeBtn),
         resetView: needsViewReset,
       });
       needsViewReset = false;
       viewerEmpty.hidden = true;
       lastMeshBlob = new Blob([buffer], { type: "model/stl" });
       lastMeshName = `${size.label || "logo"}_${size.width_mm}mm_x_${size.thickness_mm}mm.stl`;
-      downloadPreviewBtn.disabled = false;
       if (!requestedFaces) {
         const relearned = !fullTriangleCount;
         fullTriangleCount = triangles;
@@ -446,16 +595,39 @@ import { createEditor } from "./editor.js";
           return;
         }
       }
+
       const dims = res.headers.get("X-Size-Mm");
       const watertight = res.headers.get("X-Watertight") === "1";
       const bodies = Number(res.headers.get("X-Body-Count") || 1);
-      meshStats.textContent =
-        `${triangles.toLocaleString()} triangles` +
-        (dims ? ` · ${dims.split(",").map((v) => Number(v).toFixed(1)).join(" × ")} mm` : "") +
-        (bodies > 1 ? ` · ${bodies} separate parts` : "") +
-        (watertight ? " · watertight" : " · NOT watertight");
-      meshStats.classList.toggle("warn", !watertight);
-      setStatus("");
+
+      statsbar.hidden = false;
+      statSizeLabel.textContent =
+        `${size.label} · ${size.width_mm.toFixed(1)} × ${size.thickness_mm.toFixed(1)} mm`;
+      statTris.textContent = triangles.toLocaleString();
+      // Always two decimals so the columns do not jitter under a dragging slider.
+      statDims.textContent = dims
+        ? `${dims.split(",").map((v) => Number(v).toFixed(2)).join(" × ")} mm`
+        : "—";
+      statParts.textContent = String(bodies);
+      statWatertight.textContent = watertight ? "yes" : "NO";
+      statWatertight.className = `stat-val ${watertight ? "ok" : "bad"}`;
+      maskMeta.textContent = bodies > 1 ? `${bodies} parts` : "1 part";
+
+      // A mesh that is not watertight will fail the boolean cut in CAD, so it
+      // is called out on the canvas as well as in the status line, and the
+      // download is withheld.
+      showMeshError(
+        watertight
+          ? ""
+          : "Not watertight — the mesh has open edges. This will fail the boolean cut in CAD."
+      );
+      downloadPreviewBtn.disabled = !watertight;
+      setStatus(
+        watertight
+          ? `Ready · ${sizesBody.children.length} size${sizesBody.children.length === 1 ? "" : "s"} queued`
+          : "Not watertight. Lower Triangle budget or raise Ignore specks, then retry.",
+        !watertight
+      );
     } catch (err) {
       if (err.name === "AbortError") return;
       if (requestId === meshRequestId) setStatus(`3D preview failed: ${err.message}`, true);
@@ -465,7 +637,6 @@ import { createEditor } from "./editor.js";
   async function runPreview() {
     if (!currentFile) return;
     const form = currentParams();
-    setStatus("Updating preview…");
     try {
       const res = await postWithImage("/api/preview", form);
       if (!res.ok) {
@@ -474,7 +645,6 @@ import { createEditor } from "./editor.js";
       }
       const blob = await res.blob();
       maskPreview.src = URL.createObjectURL(blob);
-      setStatus("");
     } catch (err) {
       setStatus(`Preview failed: ${err.message}`, true);
     }
@@ -493,39 +663,41 @@ import { createEditor } from "./editor.js";
 
   function setStatus(msg, isError = false) {
     statusEl.textContent = msg;
-    statusEl.style.color = isError ? "#c0392b" : "";
+    statusEl.classList.toggle("is-error", Boolean(msg) && isError);
   }
 
-  generateBtn.addEventListener("click", async () => {
-    if (!currentFile) return;
-    const sizes = collectSizes();
-    if (sizes.length === 0) {
-      setStatus("Add at least one size first.", true);
-      return;
-    }
-
-    const form = currentParams();
-    form.append("sizes", JSON.stringify(sizes));
-
-    generateBtn.disabled = true;
-    setStatus("Generating STL…");
-    try {
-      const res = await postWithImage("/api/generate", form);
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `HTTP ${res.status}`);
+  generateButtons.forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!currentFile) return;
+      const sizes = collectSizes();
+      if (sizes.length === 0) {
+        setStatus("Add at least one size first.", true);
+        return;
       }
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition") || "";
-      const match = disposition.match(/filename="?([^"]+)"?/);
-      const filename = match ? match[1] : "logo.stl";
 
-      downloadBlob(blob, filename);
-      setStatus("Done.");
-    } catch (err) {
-      setStatus(`Generation failed: ${err.message}`, true);
-    } finally {
-      generateBtn.disabled = false;
-    }
-  });
+      const form = currentParams();
+      form.append("sizes", JSON.stringify(sizes));
+
+      generateButtons.forEach((b) => (b.disabled = true));
+      setStatus("Generating STL…");
+      try {
+        const res = await postWithImage("/api/generate", form);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const disposition = res.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const filename = match ? match[1] : "logo.stl";
+
+        downloadBlob(blob, filename);
+        setStatus(`Done · ${sizes.length} file${sizes.length === 1 ? "" : "s"}.`);
+      } catch (err) {
+        setStatus(`Generation failed: ${err.message}`, true);
+      } finally {
+        generateButtons.forEach((b) => (b.disabled = false));
+      }
+    })
+  );
 })();

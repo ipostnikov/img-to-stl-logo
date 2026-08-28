@@ -3,176 +3,231 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Logo → STL</title>
+  <title>img-to-stl-logo</title>
   <!-- Inline empty icon: avoids a pointless 404 for /favicon.ico. -->
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <script>
+    // Applied before first paint so a dark-theme reload never flashes light.
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved) document.documentElement.dataset.theme = saved;
+    } catch (e) { /* private mode: stay on the default theme */ }
+  </script>
 </head>
 <body>
-  <header>
-    <h1>Logo &rarr; STL</h1>
-    <p class="subtitle">Turn a PNG/JPG/SVG logo into a correctly-oriented, extruded STL — in as many sizes as you like.</p>
-  </header>
-
-  <main>
-    <section class="panel" id="upload-panel">
-      <h2>1. Image</h2>
-      <label class="dropzone" id="dropzone" for="image-input">
-        <span id="dropzone-text">Drop a PNG / JPG / SVG here, paste from the clipboard, or click to choose a file</span>
-        <input type="file" id="image-input" accept="image/*,.svg" hidden />
-      </label>
-
-      <div class="preview-row">
-        <figure>
-          <figcaption>Original</figcaption>
-          <img id="original-preview" alt="Original image preview" />
-        </figure>
-        <figure>
-          <figcaption>Detected shape (this is what gets 3D-printed)</figcaption>
-          <img id="mask-preview" alt="Detected silhouette preview" />
-        </figure>
+  <div class="app">
+    <header class="topbar">
+      <span class="app-name">img-to-stl-logo</span>
+      <span class="mono file-name" id="file-name">no file loaded</span>
+      <button type="button" class="link-btn" id="replace-btn" hidden>Replace</button>
+      <span class="spacer"></span>
+      <div class="segmented" role="group" aria-label="Theme">
+        <button type="button" class="seg is-active" data-theme-set="light">Light</button>
+        <button type="button" class="seg" data-theme-set="dark">Dark</button>
       </div>
+      <button type="button" class="btn primary" id="generate-btn" disabled>Generate STL</button>
+    </header>
 
-      <details id="editor-details">
-        <summary>Edit the image (crop / erase parts, e.g. remove text)</summary>
-        <div class="editor-toolbar">
-          <div class="tool-group" role="group" aria-label="Editing tool">
-            <button type="button" class="tool-btn is-active" data-tool="erase-brush">Erase (brush)</button>
-            <button type="button" class="tool-btn" data-tool="erase-rect">Erase (rectangle)</button>
-            <button type="button" class="tool-btn" data-tool="crop">Crop</button>
+    <div class="workspace">
+      <!-- ---------------------------------------------------- left rail -->
+      <aside class="rail is-idle" id="rail">
+        <section class="rail-section">
+          <div class="section-head">
+            <h2>Silhouette</h2>
+            <button type="button" class="link-btn" id="edit-image-btn" hidden>Edit image ▸</button>
           </div>
-          <label class="brush-field" for="brush-size">Brush</label>
-          <input type="range" id="brush-size" min="4" max="200" step="2" value="40" />
-          <span class="value" id="brush-size-value">40</span>
-          <button type="button" id="editor-undo">Undo</button>
-          <button type="button" id="editor-reset">Reset</button>
+
+          <div class="control">
+            <div class="control-head">
+              <label for="threshold">Background sensitivity</label>
+              <span class="mono readout" id="threshold-value">30</span>
+            </div>
+            <input type="range" id="threshold" min="1" max="150" value="30" />
+            <div class="range-ends mono"><span>1</span><span>150</span></div>
+          </div>
+
+          <label class="check"><input type="checkbox" id="invert" /><span>Invert selection</span></label>
+
+          <button type="button" class="link-btn disclosure" id="advanced-toggle"
+                  aria-expanded="false" aria-controls="advanced-fields">Advanced ▸</button>
+          <div class="advanced" id="advanced-fields" hidden>
+            <div class="control">
+              <div class="control-head">
+                <label for="simplify">Edge smoothing</label>
+                <span class="mono readout muted" id="simplify-value">1.5</span>
+              </div>
+              <input type="range" class="secondary" id="simplify" min="0" max="5" step="0.1" value="1.5" />
+            </div>
+            <div class="control">
+              <div class="control-head">
+                <label for="min-area">Ignore specks smaller than</label>
+                <span class="mono readout muted" id="min-area-value">0.02%</span>
+              </div>
+              <input type="range" class="secondary" id="min-area" min="0" max="0.5" step="0.01" value="0.02" />
+            </div>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <h2>Orientation</h2>
+          <div class="mirror-row">
+            <button type="button" class="btn toggle" id="mirror-h" aria-pressed="false">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 2v12"/><path d="M6 5L2 8l4 3z" fill="currentColor"/><path d="M10 5l4 3-4 3z"/></svg>
+              Mirror H
+            </button>
+            <button type="button" class="btn toggle" id="mirror-v" aria-pressed="false">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 8h12"/><path d="M5 6L8 2l3 4z" fill="currentColor"/><path d="M5 10l3 4 3-4z"/></svg>
+              Mirror V
+            </button>
+          </div>
+          <div class="rotate-row">
+            <span class="field-label">Rotate</span>
+            <div class="segmented grow mono" id="rotate" role="group" aria-label="Rotate in plane">
+              <button type="button" class="seg is-active" data-rotate="0">0°</button>
+              <button type="button" class="seg" data-rotate="90">90°</button>
+              <button type="button" class="seg" data-rotate="180">180°</button>
+              <button type="button" class="seg" data-rotate="270">270°</button>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="lay-flat" /><span>Lay flat on the bed</span></label>
+        </section>
+
+        <section class="rail-section">
+          <h2>Mesh</h2>
+          <div class="control">
+            <div class="control-head">
+              <label for="triangles">Triangle budget</label>
+              <span class="mono readout" id="triangles-value">auto</span>
+            </div>
+            <input type="range" id="triangles" min="0" max="100" step="1" value="0" />
+            <div class="range-ends mono"><span>auto / full detail</span><span>coarse</span></div>
+          </div>
+        </section>
+
+        <div class="rail-foot mono">shift+arrow = coarse step · arrows = fine</div>
+      </aside>
+
+      <!-- ------------------------------------------------------- centre -->
+      <main class="centre" id="centre">
+        <div class="editor-bar" id="editor-bar" hidden>
+          <div class="editor-bar-left">
+            <span class="section-label">Editing image</span>
+            <div class="segmented" id="tool-group" role="group" aria-label="Editing tool">
+              <button type="button" class="seg is-active" data-tool="erase-brush">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 13l3-1 7-7-2-2-7 7z"/></svg>
+                Erase brush
+              </button>
+              <button type="button" class="seg" data-tool="erase-rect">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="4" width="10" height="8"/></svg>
+                Erase rect
+              </button>
+              <button type="button" class="seg" data-tool="crop">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M5 1v10h10"/><path d="M1 5h10v10"/></svg>
+                Crop
+              </button>
+            </div>
+            <div class="brush-field" id="brush-field">
+              <label for="brush-size">Brush</label>
+              <input type="range" id="brush-size" min="4" max="200" step="2" value="40" />
+              <span class="mono readout" id="brush-size-value">40px</span>
+            </div>
+          </div>
+          <div class="editor-bar-right">
+            <button type="button" class="btn" id="editor-undo">Undo</button>
+            <button type="button" class="btn" id="editor-reset">Reset</button>
+            <button type="button" class="btn primary" id="editor-done">Done</button>
+          </div>
         </div>
-        <div class="editor-stage" id="editor-stage">
-          <canvas id="editor-canvas"></canvas>
-          <canvas id="editor-overlay"></canvas>
+
+        <div class="centre-body is-empty" id="centre-body">
+          <label class="dropzone" id="dropzone" for="image-input">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+            <span class="dropzone-title">Drop a logo, paste from clipboard, or click to browse</span>
+            <span class="mono dropzone-sub">PNG · JPG · SVG</span>
+            <input type="file" id="image-input" accept="image/*,.svg" hidden />
+          </label>
+
+          <figure class="pane" id="pane-original">
+            <figcaption class="pane-head">
+              <span class="section-label">Original</span>
+              <span class="mono pane-meta" id="original-dims"></span>
+            </figcaption>
+            <div class="pane-body checker"><img id="original-preview" alt="Original image preview" /></div>
+          </figure>
+
+          <figure class="pane" id="pane-mask">
+            <figcaption class="pane-head">
+              <span class="section-label">Detected shape</span>
+              <span class="mono pane-meta accent" id="mask-meta"></span>
+            </figcaption>
+            <div class="pane-body"><img id="mask-preview" alt="Detected silhouette preview" /></div>
+          </figure>
+
+          <div class="editor-stage" id="editor-stage" hidden>
+            <canvas id="editor-canvas"></canvas>
+            <canvas id="editor-overlay"></canvas>
+            <span class="mono stage-note stage-note-top">canvas stage</span>
+            <span class="mono stage-note stage-note-bottom" id="editor-hint">drag to erase · erased areas drop out of the silhouette</span>
+          </div>
+
+          <div class="viewport" id="viewport">
+            <canvas id="viewer-canvas"></canvas>
+            <div class="viewport-empty" id="viewer-empty">Load an image to preview the 3D model</div>
+            <span class="mono viewport-note">3D preview · drag to orbit · scroll to zoom</span>
+            <div class="viewport-tools">
+              <button type="button" class="ghost-btn" id="wireframe-btn" aria-pressed="false">Show mesh triangles</button>
+              <button type="button" class="ghost-btn" id="reset-view-btn">Reset view</button>
+              <button type="button" class="ghost-btn" id="refresh-preview-btn">Refresh</button>
+              <button type="button" class="ghost-btn accent-btn" id="download-preview-btn" disabled>Download this STL</button>
+            </div>
+            <div class="viewport-bottom">
+              <div class="mesh-error" id="mesh-error" hidden>
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 2.5L15 14H1z"/><path d="M8 6.5v3.2"/><path d="M8 11.7v.1"/></svg>
+                <span id="mesh-error-text"></span>
+              </div>
+              <div class="statsbar mono" id="statsbar" hidden>
+                <span class="stat-key">previewing</span><span class="stat-val accent" id="stat-size-label">—</span>
+                <span class="stat-key">triangles</span><span class="stat-val" id="stat-tris">—</span>
+                <span class="stat-key">size</span><span class="stat-val" id="stat-dims">—</span>
+                <span class="stat-key">parts</span><span class="stat-val" id="stat-parts">—</span>
+                <span class="stat-key">watertight</span><span class="stat-val" id="stat-watertight">—</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <p class="hint" id="editor-hint">
-          Drag on the image to erase. Erased areas are filled with the detected
-          background colour (or made transparent if the image already has an alpha
-          channel), so they drop out of the silhouette.
-        </p>
-      </details>
-    </section>
+      </main>
 
-    <section class="panel" id="mask-panel">
-      <h2>2. Silhouette detection</h2>
-      <div class="field-row">
-        <label for="threshold">Background sensitivity</label>
-        <input type="range" id="threshold" min="1" max="150" value="30" />
-        <span class="value" id="threshold-value">30</span>
-      </div>
-      <p class="hint">
-        Only used for images without transparency. Higher = more pixels are treated as background.
-        Watch the "Detected shape" preview and adjust until it matches the logo.
-      </p>
-      <div class="field-row">
-        <label class="checkbox">
-          <input type="checkbox" id="invert" /> Invert selection
-        </label>
-        <label class="checkbox">
-          <input type="checkbox" id="advanced-toggle" /> Advanced
-        </label>
-      </div>
-      <div class="field-row advanced" id="advanced-fields" hidden>
-        <label for="simplify">Edge smoothing</label>
-        <input type="range" id="simplify" min="0" max="5" step="0.1" value="1.5" />
-        <span class="value" id="simplify-value">1.5</span>
-      </div>
-      <div class="field-row advanced" id="advanced-fields-2" hidden>
-        <label for="min-area">Ignore specks smaller than (%)</label>
-        <input type="range" id="min-area" min="0" max="0.5" step="0.01" value="0.02" />
-        <span class="value" id="min-area-value">0.02</span>
-      </div>
-    </section>
+      <!-- --------------------------------------------------- right column -->
+      <aside class="sidebar">
+        <section class="rail-section">
+          <div class="section-head">
+            <h2>Sizes to generate</h2>
+            <span class="mono pane-meta" id="size-count">3 files</span>
+          </div>
+          <div class="sizes" id="sizes">
+            <div class="size-row size-head mono">
+              <div>Label</div><div class="num">W mm</div><div class="num">T mm</div><div></div>
+            </div>
+            <div id="sizes-body"></div>
+          </div>
+          <div class="presets">
+            <button type="button" class="btn preset-btn" data-preset="small">5×10</button>
+            <button type="button" class="btn preset-btn" data-preset="medium">7.5×10</button>
+            <button type="button" class="btn preset-btn" data-preset="large">10×10</button>
+          </div>
+          <button type="button" class="link-btn" id="add-size-btn">+ Add custom size</button>
+        </section>
 
-    <section class="panel" id="orientation-panel">
-      <h2>3. Orientation &amp; mesh</h2>
-      <div class="field-row">
-        <label>Mirror</label>
-        <label class="checkbox"><input type="checkbox" id="mirror-h" /> Horizontally</label>
-        <label class="checkbox"><input type="checkbox" id="mirror-v" /> Vertically</label>
-      </div>
-      <div class="field-row">
-        <label for="rotate">Rotate in plane</label>
-        <select id="rotate">
-          <option value="0">0°</option>
-          <option value="90">90°</option>
-          <option value="180">180°</option>
-          <option value="270">270°</option>
-        </select>
-        <label class="checkbox"><input type="checkbox" id="lay-flat" /> Lay flat on the bed</label>
-      </div>
-      <p class="hint">
-        Mirroring is what you want when the logo will be pressed/embossed into another
-        surface. "Lay flat" turns the model so its thickness runs vertically off the print bed.
-      </p>
-      <div class="field-row">
-        <label for="triangles">Triangle budget</label>
-        <input type="range" id="triangles" min="0" max="100" step="1" value="0" />
-        <span class="value" id="triangles-value">auto</span>
-      </div>
-      <p class="hint">
-        Left-most = no reduction (full detail). Move right to decimate the mesh toward a
-        smaller triangle count — smaller files, coarser edges. Also try "Edge smoothing"
-        above, which reduces triangles by simplifying the outline itself.
-      </p>
-    </section>
+        <div class="grow"></div>
 
-    <section class="panel" id="preview3d-panel">
-      <h2>4. 3D preview</h2>
-      <div class="viewer-wrap">
-        <canvas id="viewer-canvas"></canvas>
-        <div class="viewer-empty" id="viewer-empty">Load an image to preview the 3D model</div>
-      </div>
-      <div class="field-row">
-        <label class="checkbox"><input type="checkbox" id="wireframe" /> Show mesh triangles</label>
-        <button type="button" id="reset-view-btn">Reset view</button>
-        <button type="button" id="refresh-preview-btn">Refresh</button>
-        <button type="button" id="download-preview-btn" disabled>Download this STL</button>
-        <span class="value" id="mesh-stats"></span>
-      </div>
-      <p class="hint">
-        Drag to orbit, scroll to zoom. Previewed at the first size in the list below.
-        Your camera stays put when you change the triangle budget or orientation,
-        so you can zoom into a detail and watch the mesh change under it.
-      </p>
-    </section>
-
-    <section class="panel" id="sizes-panel">
-      <h2>5. Sizes to generate</h2>
-      <div class="presets">
-        <button type="button" class="preset-btn" data-preset="small">+ Small (5mm, 10mm)</button>
-        <button type="button" class="preset-btn" data-preset="medium">+ Medium (7.5mm, 10mm)</button>
-        <button type="button" class="preset-btn" data-preset="large">+ Large (10mm, 10mm)</button>
-      </div>
-      <table id="sizes-table">
-        <thead>
-          <tr>
-            <th>Label</th>
-            <th>Width (mm)</th>
-            <th>Thickness (mm)</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="sizes-body"></tbody>
-      </table>
-      <button type="button" id="add-size-btn">+ Add custom size</button>
-    </section>
-
-    <section class="panel" id="generate-panel">
-      <button type="button" id="generate-btn" disabled>Generate STL</button>
-      <span id="status"></span>
-    </section>
-  </main>
-
-  <footer>
-    <p>Runs entirely in this container — nothing is uploaded anywhere else.</p>
-  </footer>
+        <div class="sidebar-foot">
+          <button type="button" class="btn primary block" id="generate-btn-2" disabled>Generate STL</button>
+          <p class="mono status" id="status">Waiting for an image.</p>
+        </div>
+      </aside>
+    </div>
+  </div>
 
   <script type="module" src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
