@@ -303,6 +303,51 @@ import { createEditor } from "./editor.js";
     if (file) setDropzoneFile(file);
   });
 
+  function isEditableTarget(el) {
+    return (
+      el &&
+      (el.isContentEditable ||
+        el.tagName === "TEXTAREA" ||
+        (el.tagName === "INPUT" && !["range", "checkbox", "file"].includes(el.type)))
+    );
+  }
+
+  // Clipboard images arrive as nameless blobs; give them a name so the dropzone
+  // label and the STL's Content-Disposition filename stay meaningful.
+  function nameForPastedBlob(blob) {
+    const ext = { "image/svg+xml": "svg", "image/jpeg": "jpg" }[blob.type] || "png";
+    return `pasted-image.${ext}`;
+  }
+
+  document.addEventListener("paste", (e) => {
+    const data = e.clipboardData;
+    if (!data) return;
+
+    const blob = Array.from(data.items || [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .find((f) => f && (f.type.startsWith("image/") || /\.svg$/i.test(f.name || "")));
+    if (blob) {
+      e.preventDefault();
+      const named =
+        blob.name && blob.name !== "image.png"
+          ? blob
+          : new File([blob], nameForPastedBlob(blob), { type: blob.type });
+      setDropzoneFile(named);
+      setStatus(`Pasted ${named.name}.`);
+      return;
+    }
+
+    // Copying from a vector editor (or a text editor) often yields SVG markup
+    // as plain text rather than a file.
+    if (isEditableTarget(e.target)) return;
+    const text = (data.getData("text/plain") || "").trim();
+    if (!/^(<\?xml[\s\S]*?\?>\s*|<!DOCTYPE[\s\S]*?>\s*)*<svg[\s>]/i.test(text)) return;
+    e.preventDefault();
+    setDropzoneFile(new File([text], "pasted-image.svg", { type: "image/svg+xml" }));
+    setStatus("Pasted SVG markup.");
+  });
+
   function currentParams() {
     const form = new FormData();
     form.append("threshold", thresholdInput.value);
