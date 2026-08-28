@@ -348,9 +348,11 @@ def build_mesh(
         mesh = _decimate(mesh, target_faces)
     mesh.apply_transform(_REFERENCE_ORIENTATION)
     mesh.apply_transform((orientation or DEFAULT_ORIENTATION).matrix())
-    # Sit flush at the origin (min X/Y/Z == 0), regardless of extrude_polygon's
-    # internal placement or the reorientation above.
-    mesh.apply_translation(-mesh.bounds[0])
+    # Centre the bounding box on the origin, regardless of extrude_polygon's
+    # internal placement or the reorientation above. CAD tools mate the logo to
+    # another body by its centre, so a min-corner-at-origin placement forces a
+    # manual translate on every import.
+    mesh.apply_translation(-mesh.bounds.mean(axis=0))
     return mesh
 
 
