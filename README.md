@@ -71,7 +71,10 @@ docker run --rm -p 8080:8080 logo-to-stl
    (highlighted when it is not — heavy decimation can break watertightness).
    "Download this STL" saves exactly what you are looking at.
 6. Add/edit size rows (label, width in mm, thickness in mm) — presets for
-   small/medium/large are provided as a starting point.
+   small (5mm), medium (7.5mm) and large (10mm) are provided as a starting
+   point. These are earmould/shell scale, matching the reference STLs; the
+   thickness is the depth of the prism you boolean into the shell, not the
+   final emboss height, so it is deliberately generous.
 7. Click "Generate STL". One size downloads as a single `.stl`; multiple
    sizes download as a `.zip` containing one `.stl` each.
 

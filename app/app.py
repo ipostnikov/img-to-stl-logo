@@ -171,8 +171,8 @@ def mesh_preview():
     orientation = _read_orientation()
     target_faces = _read_target_faces()
     try:
-        width_mm = float(request.form.get("width_mm", 100))
-        thickness_mm = float(request.form.get("thickness_mm", 35))
+        width_mm = float(request.form.get("width_mm", 5))
+        thickness_mm = float(request.form.get("thickness_mm", 10))
     except ValueError:
         abort(400, "Invalid size")
     if width_mm <= 0 or thickness_mm <= 0:

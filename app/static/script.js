@@ -130,13 +130,15 @@ import { createEditor } from "./editor.js";
     return res;
   }
 
-  // Thickness is deliberately a substantial fraction of width (~30-40%),
-  // matching the reference STLs shipped with this project - this is meant
-  // to emboss/press into another surface, not sit as a thin flat badge.
+  // These logos go on earmoulds and hearing-aid shells, so the artwork is only
+  // a few mm across: the reference STLs (0/1/2.stl) span 4.7-10.2 mm in-plane.
+  // Thickness is the depth of the prism that gets booleaned into the shell, not
+  // the final emboss height, so it is deliberately generous - a 5 mm logo at
+  // 10 mm deep is the size that has been used successfully in CAD.
   const PRESETS = {
-    small: { label: "small", width_mm: 50, thickness_mm: 20 },
-    medium: { label: "medium", width_mm: 100, thickness_mm: 35 },
-    large: { label: "large", width_mm: 150, thickness_mm: 50 },
+    small: { label: "small", width_mm: 5, thickness_mm: 10 },
+    medium: { label: "medium", width_mm: 7.5, thickness_mm: 10 },
+    large: { label: "large", width_mm: 10, thickness_mm: 10 },
   };
 
   function addSizeRow(preset = {}) {
@@ -151,9 +153,9 @@ import { createEditor } from "./editor.js";
     const widthTd = document.createElement("td");
     const widthInput = document.createElement("input");
     widthInput.type = "number";
-    widthInput.min = "1";
+    widthInput.min = "0.1";
     widthInput.step = "any";
-    widthInput.value = preset.width_mm ?? 100;
+    widthInput.value = preset.width_mm ?? 5;
     widthTd.appendChild(widthInput);
 
     const thicknessTd = document.createElement("td");
@@ -161,7 +163,7 @@ import { createEditor } from "./editor.js";
     thicknessInput.type = "number";
     thicknessInput.min = "0.1";
     thicknessInput.step = "any";
-    thicknessInput.value = preset.thickness_mm ?? 30;
+    thicknessInput.value = preset.thickness_mm ?? 10;
     thicknessTd.appendChild(thicknessInput);
 
     const removeTd = document.createElement("td");
