@@ -26,7 +26,10 @@ http://localhost:8080
   deliberately more than you need.
 - There's a built-in image editor (brush, rectangle erase, crop) for stripping
   the text off a logo before tracing. It takes over the preview panes, but the
-  silhouette and the 3D model keep updating while you erase.
+  silhouette and the 3D model keep updating while you erase. Scroll to zoom
+  (or use the −/100%/+/Fit controls), space- or middle-drag to pan; the brush
+  outline is drawn at its real on-screen size, so a speck a few pixels across
+  can be aimed at properly.
 - Click a row in the sizes table to preview that size in 3D; the row the canvas
   is showing carries the amber rail.
 - The triangle budget slider decimates the mesh. Push it too far and the model

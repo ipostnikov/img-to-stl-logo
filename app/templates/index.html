@@ -133,6 +133,15 @@
               <span class="mono readout" id="brush-size-value">40px</span>
             </div>
           </div>
+          <div class="zoom-field">
+            <div class="segmented mono" role="group" aria-label="Zoom">
+              <button type="button" class="seg" id="zoom-out" title="Zoom out (scroll down)">−</button>
+              <button type="button" class="seg" id="zoom-actual" title="Zoom to 100%">100%</button>
+              <button type="button" class="seg" id="zoom-in" title="Zoom in (scroll up)">+</button>
+            </div>
+            <button type="button" class="btn" id="zoom-fit" title="Fit the image to the stage">Fit</button>
+            <span class="mono readout" id="zoom-value">100%</span>
+          </div>
           <div class="editor-bar-right">
             <button type="button" class="btn" id="editor-undo">Undo</button>
             <button type="button" class="btn" id="editor-reset">Reset</button>
@@ -167,8 +176,8 @@
           <div class="editor-stage" id="editor-stage" hidden>
             <canvas id="editor-canvas"></canvas>
             <canvas id="editor-overlay"></canvas>
-            <span class="mono stage-note stage-note-top">canvas stage</span>
-            <span class="mono stage-note stage-note-bottom" id="editor-hint">drag to erase · erased areas drop out of the silhouette</span>
+            <span class="mono stage-note stage-note-top" id="stage-note">canvas stage</span>
+            <span class="mono stage-note stage-note-bottom" id="editor-hint">drag to erase · scroll to zoom · space or middle-drag to pan</span>
           </div>
 
           <div class="viewport" id="viewport">

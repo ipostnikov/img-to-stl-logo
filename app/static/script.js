@@ -63,6 +63,7 @@ import { createEditor } from "./editor.js";
   const brushField = $("brush-field");
   const brushSizeInput = $("brush-size");
   const brushSizeValue = $("brush-size-value");
+  const zoomValue = $("zoom-value");
   const toolButtons = document.querySelectorAll("#tool-group .seg");
 
   const generateButtons = [$("generate-btn"), $("generate-btn-2")];
@@ -120,6 +121,9 @@ import { createEditor } from "./editor.js";
   const editor = createEditor({
     canvas: editorCanvas,
     overlay: editorOverlay,
+    onView: (scale) => {
+      zoomValue.textContent = `${Math.round(scale * 100)}%`;
+    },
     onChange: () => {
       // Edits invalidate the triangle baseline and change the silhouette.
       fullTriangleCount = 0;
@@ -363,8 +367,9 @@ import { createEditor } from "./editor.js";
     editorStage.hidden = !on;
     centreBody.classList.toggle("is-editing", on);
     if (on) {
-      // The stage has no width until it is actually laid out.
-      requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+      // The stage has no size until it is actually laid out, so the view can
+      // only be framed once the browser has done that.
+      requestAnimationFrame(() => editor.refresh());
     }
   }
   editImageBtn.addEventListener("click", () => setEditing(true));
@@ -384,6 +389,22 @@ import { createEditor } from "./editor.js";
   });
   brushSizeValue.textContent = `${brushSizeInput.value}px`;
   editor.setBrushSize(Number(brushSizeInput.value));
+  $("zoom-in").addEventListener("click", () => editor.zoomIn());
+  $("zoom-out").addEventListener("click", () => editor.zoomOut());
+  $("zoom-actual").addEventListener("click", () => editor.zoomActual());
+  $("zoom-fit").addEventListener("click", () => editor.zoomFit());
+
+  // Keyboard zoom, but only while the editor is up and nothing is being typed.
+  document.addEventListener("keydown", (e) => {
+    if (editorBar.hidden || e.ctrlKey || e.metaKey || isEditableTarget(e.target)) return;
+    if (e.key === "+" || e.key === "=") editor.zoomIn();
+    else if (e.key === "-" || e.key === "_") editor.zoomOut();
+    else if (e.key === "0") editor.zoomFit();
+    else if (e.key === "1") editor.zoomActual();
+    else return;
+    e.preventDefault();
+  });
+
   editorUndo.addEventListener("click", () => editor.undo());
   editorReset.addEventListener("click", () => editor.reset());
 
@@ -410,10 +431,11 @@ import { createEditor } from "./editor.js";
     centreBody.classList.remove("is-empty");
     originalPreview.src = URL.createObjectURL(file);
     originalPreview.onload = () => {
-      originalDims.textContent =
-        originalPreview.naturalWidth
-          ? `${originalPreview.naturalWidth}×${originalPreview.naturalHeight}`
-          : "";
+      const dims = originalPreview.naturalWidth
+        ? `${originalPreview.naturalWidth}×${originalPreview.naturalHeight}`
+        : "";
+      originalDims.textContent = dims;
+      $("stage-note").textContent = dims ? `canvas stage · ${dims} source px` : "canvas stage";
     };
     generateButtons.forEach((b) => (b.disabled = false));
     editor

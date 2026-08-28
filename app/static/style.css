@@ -497,6 +497,7 @@ input[type="range"].secondary::-moz-range-progress { background: var(--secondary
 
 /* ------------------------------------------------------------ image editor */
 .editor-bar {
+  container-type: inline-size;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -507,6 +508,22 @@ input[type="range"].secondary::-moz-range-progress { background: var(--secondary
   background: var(--surface);
 }
 .editor-bar-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.zoom-field { display: flex; align-items: center; gap: 8px; }
+.zoom-field .seg { min-width: 34px; padding: 6px 8px; }
+.zoom-field .readout { width: 46px; text-align: right; }
+
+/* Everything in this bar aims a stroke, so it has to stay on one row: below
+   the width where it all fits, drop the label and tighten the sliders rather
+   than wrapping and eating the stage's height. */
+@container (max-width: 1000px) {
+  .editor-bar .section-label { display: none; }
+  .brush-field { width: 140px; }
+}
+@container (max-width: 820px) {
+  .editor-bar-left { gap: 8px; }
+  .brush-field { width: 104px; }
+  .editor-bar .seg { padding: 6px 8px; }
+}
 /* Undo/Reset live at the far edge, away from the tools, so a mis-click
    mid-stroke cannot throw away the work. */
 .editor-bar-right { display: flex; gap: 6px; }
@@ -524,9 +541,11 @@ input[type="range"].secondary::-moz-range-progress { background: var(--secondary
   border-right: 1px solid var(--border);
   background: repeating-linear-gradient(45deg, var(--surface-hover) 0 9px, var(--bg) 9px 18px);
 }
-.editor-stage canvas { position: absolute; touch-action: none; }
+.editor-stage canvas { position: absolute; inset: 0; touch-action: none; }
 .editor-stage #editor-overlay { pointer-events: none; }
 .editor-stage #editor-canvas { cursor: crosshair; }
+.editor-stage #editor-canvas.can-pan { cursor: grab; }
+.editor-stage #editor-canvas.is-panning { cursor: grabbing; }
 .stage-note { position: absolute; left: 14px; font-size: 11px; color: var(--text-faint); }
 .stage-note-top { top: 12px; }
 .stage-note-bottom { bottom: 12px; }
